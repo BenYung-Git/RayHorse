@@ -1,0 +1,41 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local / runtime data
+data/*.sqlite
+data/*.sqlite-*
+data/*.sqlite3
+data/*.sqlite3-*
+data/backup/
+data/ui_prefs.json
+data/task_settings.json
+data/race_analysis_prefs.json
+data/download_sources.json
+
+# Build / packaging
+build/
+dist/
+*.spec.bak
+HPPV_test_*.zip
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Scratch
+_odds_q.txt
+*.log

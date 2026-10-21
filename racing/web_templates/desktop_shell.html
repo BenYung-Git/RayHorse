@@ -1,0 +1,2794 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Racing｜WEB 介面（對齊 Windows）</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='desktop.css') }}?v=analysis7">
+  <script src="{{ url_for('static', filename='grid_nav.js') }}?v=analysis7" defer></script>
+</head>
+<body class="hppv-desktop" data-theme="fusion_tech">
+  <div class="menubar" id="menubar">
+    <div class="menu" id="menu-main">
+      <button type="button">主選單</button>
+      <div class="dropdown" id="menuMainItems"></div>
+    </div>
+    <div class="menu">
+      <button type="button">系統設定</button>
+      <div class="dropdown dropdown-settings">
+        <button type="button" data-action="task-settings"><span class="mi mi-info"></span>任務設定</button>
+        <div class="menu-sep">主題風格</div>
+        <div id="themeSubmenu" class="menu-inline"></div>
+        <div class="menu-sep">主選單樣式</div>
+        <div id="menuStyleSubmenu" class="menu-inline"></div>
+      </div>
+    </div>
+    <div class="menu">
+      <button type="button">AI</button>
+      <div class="dropdown">
+        <button type="button" data-action="ai"><span class="mi mi-ai"></span>AI 助手</button>
+      </div>
+    </div>
+    <div class="menu">
+      <button type="button">介面</button>
+      <div class="dropdown">
+        <button type="button" data-action="windows"><span class="mi mi-win"></span>Windows 介面</button>
+        <button type="button" data-action="print"><span class="mi mi-print"></span>列印／報表</button>
+        <button type="button" data-action="legacy-web"><span class="mi mi-web"></span>舊版 Web Dashboard</button>
+        <div class="menu-sep"></div>
+        <button type="button" data-action="exit"><span class="mi mi-close"></span>離開</button>
+      </div>
+    </div>
+    <div class="toolbar">
+      <span class="view-label" id="viewLabel">目前開啟：AI 助手</span>
+      <button class="btn" type="button" data-action="ai"><span class="mi mi-ai"></span>AI 助手</button>
+      <button class="btn" type="button" data-action="download"><span class="mi mi-down"></span>下載資料</button>
+      <label class="field-label" for="themeSelect">主題風格：</label>
+      <select id="themeSelect">
+        <option value="0">① Fusion 科技風（預設）</option>
+        <option value="1">② 薄荷清新</option>
+        <option value="2">③ 暖杏米白</option>
+        <option value="3">④ 霧灰藍</option>
+        <option value="4">⑤ 薄霧綠</option>
+        <option value="5">⑥ 淡玫瑰粉</option>
+      </select>
+      <button class="btn" type="button" data-action="print"><span class="mi mi-print"></span>列印</button>
+      <button class="btn" type="button" data-action="windows"><span class="mi mi-win"></span>Windows 介面</button>
+    </div>
+  </div>
+
+  <div class="toolbar-main hidden" id="toolbarMain"></div>
+
+  <div class="app-body">
+    <aside class="side-menu hidden" id="sideMenu">
+      <h3>主選單</h3>
+      <div id="sideItems"></div>
+    </aside>
+    <main class="content">
+      <div class="tabbar" id="mainTabs"></div>
+
+      <section class="panel" id="panel-horses">
+        <div class="db-row">
+          <label class="field-label" for="dbPath">DB：</label>
+          <input type="text" id="dbPath" class="form-nav" readonly>
+        </div>
+        <div class="search-row">
+          <button class="btn" type="button" id="btnFilter"><span class="mi mi-filter"></span>過濾</button>
+          <button class="btn" type="button" id="btnSearch"><span class="mi mi-search"></span>搜尋</button>
+          <label class="field-label" for="horseQ">馬名搜尋：</label>
+          <input type="text" id="horseQ" class="form-nav grow" placeholder="HorseId、烙號（如 H123）或馬名關鍵字">
+          <span id="horseCount" class="count-label">Grid Row 0/0</span>
+        </div>
+        <div class="split-vert">
+          <div class="grid-wrap horses-grid-pane">
+            <table class="hppv-grid" data-grid-nav data-record-select="horses" id="horsesGrid">
+              <thead>
+                <tr>
+                  <th data-col="0">HorseId</th>
+                  <th data-col="1">Brand No.</th>
+                  <th data-col="2">Name EN</th>
+                  <th data-col="3" class="sorted-asc">Name ZH ↑</th>
+                  <th data-col="4">Status</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="detail-tabs" id="detailTabs">
+            <div class="tabbar detail-tabbar">
+              <button class="tab active" type="button" data-detail="horse">馬匹資料</button>
+              <button class="tab" type="button" data-detail="races">往績</button>
+            </div>
+            <div class="detail-pane active" id="detail-horse">
+              <div class="form-grid" id="horseForm">
+                <label class="field-label" for="fldHorseId">HorseId：</label>
+                <input type="text" id="fldHorseId" class="form-field" readonly>
+                <label class="field-label" for="fldBrandNo">Brand No.：</label>
+                <input type="text" id="fldBrandNo" class="form-field" readonly>
+                <label class="field-label" for="fldNameEn">Name EN：</label>
+                <input type="text" id="fldNameEn" class="form-field" readonly>
+                <label class="field-label" for="fldNameZh">Name ZH：</label>
+                <input type="text" id="fldNameZh" class="form-field" readonly>
+                <label class="field-label" for="fldStatus">Status：</label>
+                <input type="text" id="fldStatus" class="form-field" readonly>
+              </div>
+            </div>
+            <div class="detail-pane" id="detail-races">
+              <div class="grid-wrap grid-viewport-8">
+                <table class="hppv-grid" data-grid-nav id="racesGrid">
+                  <thead><tr id="racesHead"></tr></thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-racecard">
+        <div class="search-row">
+          <span id="racecardMeta" class="count-label grow">上次更新時間：尚未更新</span>
+          <button class="btn" type="button" id="btnReloadRacecard" title="從網站更新最新排位（對齊 Windows「更新資料」）"><span class="mi mi-refresh"></span>更新資料</button>
+        </div>
+        <div class="search-row">
+          <label class="field-label" for="racecardMeeting">賽事日期：</label>
+          <select id="racecardMeeting" class="grow" title="選擇資料庫內已有的賽事日期／場地，即時顯示該日排位"></select>
+        </div>
+        <div id="racecardTabs" class="tabbar"></div>
+        <div id="racecardRaceInfo" class="race-info-frame" hidden></div>
+        <div class="grid-wrap racecard-grid-pane">
+          <table class="hppv-grid" data-grid-nav id="racecardGrid">
+            <thead><tr></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-results">
+        <div class="search-row">
+          <label class="field-label" for="resultsMeeting">賽事日期：</label>
+          <select id="resultsMeeting" class="grow" title="選擇資料庫內已有的賽事日期／場地"></select>
+          <button class="btn" type="button" id="btnReloadResults" title="重新載入目前賽日賽果（不重讀賽日清單）"><span class="mi mi-refresh"></span>重新整理</button>
+        </div>
+        <div class="grid-wrap">
+          <table class="hppv-grid" data-grid-nav id="resultsGrid">
+            <thead>
+              <tr>
+                <th>場次</th><th>名次</th><th>馬號</th><th>馬名</th><th>烙號</th><th>班/級別</th><th>評分</th><th>騎師</th>
+                <th>練馬師</th><th>負磅</th><th>檔位</th><th>走位</th><th>完成時間</th><th>獨贏</th><th>位置賠率</th><th>途程</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-kings">
+        <div class="search-row">
+          <label class="field-label" for="kingsMeeting">賽事日期：</label>
+          <select id="kingsMeeting" class="grow" title="選擇資料庫內已有的賽事日期"></select>
+          <button class="btn" type="button" id="btnReloadKings" title="重新載入目前賽日積分榜（不重讀賽日清單）"><span class="mi mi-refresh"></span>重新整理</button>
+        </div>
+        <div class="kings-stack">
+          <div class="kings-split">
+            <div class="kings-pane">
+              <div class="kings-title">練馬師王（賽日）</div>
+              <div class="grid-wrap kings-grid-pane">
+                <table class="hppv-grid" data-grid-nav id="kingsTrainerGrid">
+                  <thead>
+                    <tr>
+                      <th>編號</th><th>姓名</th><th>賽日積分</th>
+                      <th>冠</th><th>亞</th><th>季</th><th>殿</th><th>備註</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="kings-pane">
+              <div class="kings-title">騎師王（賽日）</div>
+              <div class="grid-wrap kings-grid-pane">
+                <table class="hppv-grid" data-grid-nav id="kingsJockeyGrid">
+                  <thead>
+                    <tr>
+                      <th>編號</th><th>姓名</th><th>賽日積分</th>
+                      <th>冠</th><th>亞</th><th>季</th><th>殿</th><th>備註</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          <div class="kings-split">
+            <div class="kings-pane">
+              <div class="kings-title">練馬師王（今季總分）</div>
+              <div class="grid-wrap kings-grid-pane">
+                <table class="hppv-grid" data-grid-nav id="kingsTrainerSeasonGrid">
+                  <thead>
+                    <tr>
+                      <th>排名</th><th>姓名</th><th>今季總分</th>
+                      <th>冠</th><th>亞</th><th>季</th><th>殿</th><th>賽日數</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="kings-pane">
+              <div class="kings-title">騎師王（今季總分）</div>
+              <div class="grid-wrap kings-grid-pane">
+                <table class="hppv-grid" data-grid-nav id="kingsJockeySeasonGrid">
+                  <thead>
+                    <tr>
+                      <th>排名</th><th>姓名</th><th>今季總分</th>
+                      <th>冠</th><th>亞</th><th>季</th><th>殿</th><th>賽日數</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-analysis">
+        <div class="analysis-layout">
+          <div class="analysis-form">
+            <label class="dl-line">範本
+              <select id="anTemplate" class="grow" title="選擇已儲存的分析範本後按「取出範本」">
+                <option value="">（選擇範本）</option>
+              </select>
+            </label>
+            <label class="dl-line">賽事日期／場地
+              <select id="anMeeting" class="grow"></select>
+            </label>
+            <div class="dl-line analysis-race-row">
+              <label><input type="radio" name="anRaceMode" id="anRaceAll" value="all" checked> 全部場次</label>
+              <label><input type="radio" name="anRaceMode" id="anRaceOne" value="one"> 指定場次</label>
+              <select id="anRaceNo" disabled></select>
+            </div>
+            <label class="analysis-fields-label" for="anFieldsText">輸出欄位（以／分隔，可兩行）</label>
+            <textarea id="anFieldsText" class="analysis-fields-text" rows="2" spellcheck="false"
+              placeholder="場次／馬號／馬匹名稱／…（兩行顯示，可完整看到全部欄位）"></textarea>
+            <div class="dl-line analysis-sort-row">
+              <span>排序欄位</span>
+              <input type="text" id="anSortField" list="anSortFieldList" value="合計分數" placeholder="合計分數">
+              <datalist id="anSortFieldList"></datalist>
+              <label><input type="radio" name="anSortDir" id="anSortDesc" value="desc" checked> 降序</label>
+              <label><input type="radio" name="anSortDir" id="anSortAsc" value="asc"> 升序</label>
+            </div>
+            <div class="analysis-fields-label">條件及計分方法</div>
+            <div class="grid-wrap analysis-cond-pane">
+              <table class="hppv-grid" id="anCondGrid" data-no-grid-nav>
+                <thead>
+                  <tr><th>啟用</th><th>條件類型</th><th>計分方法</th></tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <div class="dl-line analysis-cond-actions">
+              <button class="btn" type="button" id="btnAnAddCond">新增條件</button>
+              <button class="btn" type="button" id="btnAnDelCond">刪除選取</button>
+              <button class="btn" type="button" id="btnAnResetCond">還原預設條件</button>
+            </div>
+            <label class="dl-line">指令標題 <input type="text" id="anTitle" class="grow" placeholder="製成 AI 指令時使用"></label>
+            <label class="analysis-preview-label">指令預覽</label>
+            <textarea id="anPreview" class="analysis-preview" rows="6" readonly placeholder="按「預覽指令」產生 AI 指令內容"></textarea>
+            <p class="muted">條件以 GRID 管理。預設三種計分可由本機合計分數引擎直接出表；範本只存欄位／排序／條件，不含賽日。</p>
+          </div>
+          <aside class="analysis-actions">
+            <button class="btn" type="button" id="btnAnLoadTpl"><span class="mi mi-list"></span>取出範本</button>
+            <button class="btn" type="button" id="btnAnSaveTpl"><span class="mi mi-save"></span>儲存為範本</button>
+            <button class="btn" type="button" id="btnAnDelTpl"><span class="mi mi-close"></span>刪除範本</button>
+            <button class="btn" type="button" id="btnAnPreview"><span class="mi mi-preview"></span>預覽指令</button>
+            <button class="btn" type="button" id="btnAnSaveCmd"><span class="mi mi-save"></span>製成 AI 指令</button>
+            <button class="btn" type="button" id="btnAnFillAi"><span class="mi mi-ai"></span>放入 AI 助手</button>
+            <button class="btn" type="button" id="btnAnSendAi"><span class="mi mi-send"></span>送至 AI 助手</button>
+          </aside>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-print">
+        <div class="print-bar">
+          <button class="btn" type="button" data-print="horse_results"><span class="mi mi-report"></span>馬匹往績報表</button>
+          <button class="btn" type="button" id="btnPrintPreview"><span class="mi mi-preview"></span>預覽目前 Grid</button>
+          <button class="btn" type="button" id="btnPrintPage"><span class="mi mi-print"></span>瀏覽器列印</button>
+          <a class="btn" href="{{ url_for('export_report', report='horse_results') }}"><span class="mi mi-down"></span>下載 Excel</a>
+        </div>
+        <p class="muted">列印／報表與 Windows 相同：選報表 → 預覽／匯出 → 列印。</p>
+        <div id="printPreview" class="card" style="background:var(--panel-bg); border:1px solid var(--border); padding:12px;"></div>
+      </section>
+
+      <section class="panel active" id="panel-ai">
+        <p class="ai-hint muted">對話框為五行。第一行按↑上一指令、最後一行按↓下一指令。Ctrl+Enter 送出。</p>
+        <div id="aiChat" class="ai-chat" aria-live="polite"></div>
+        <div class="ai-table-label" id="aiTableLabel">報表／列表</div>
+        <div class="grid-wrap ai-grid-pane">
+          <table class="hppv-grid" data-grid-nav id="aiGrid">
+            <thead><tr></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="ai-input-row">
+          <div class="ai-btn-col">
+            <button class="btn" type="button" id="btnAiSend"><span class="mi mi-send"></span>送出</button>
+            <button class="btn" type="button" id="btnAiCmd"><span class="mi mi-list"></span>選取指令</button>
+            <button class="btn" type="button" id="btnAiCmdPrev" title="放入上一筆已儲存指令（↑）"><span class="mi mi-up"></span>上一指令</button>
+            <button class="btn" type="button" id="btnAiCmdNext" title="放入下一筆已儲存指令（↓）"><span class="mi mi-down"></span>下一指令</button>
+          </div>
+          <textarea id="aiQ" class="ai-prompt" rows="5" placeholder="輸入馬名、編號、問題，或要儲存的指令"></textarea>
+        </div>
+        <div class="ai-tools">
+          <button class="btn" type="button" id="btnAiSave"><span class="mi mi-save"></span>儲存指令</button>
+          <button class="btn" type="button" id="btnAiUpload" disabled title="請於 Windows 介面上傳"><span class="mi mi-add"></span>上傳文件</button>
+          <button class="btn" type="button" id="btnAiExport"><span class="mi mi-down"></span>匯出報表</button>
+          <button class="btn" type="button" id="btnAiClear"><span class="mi mi-refresh"></span>清除對話</button>
+          <button class="btn" type="button" id="btnAiSettings" disabled title="請於 Windows 介面設定"><span class="mi mi-info"></span>模型設定</button>
+        </div>
+        <div class="ai-status" id="aiStatus"></div>
+        <dialog id="aiCmdDialog" class="ai-dialog ai-cmd-dialog">
+          <form method="dialog" class="ai-dialog-form">
+            <h3>AI_COMMAND</h3>
+            <p class="muted">選擇一筆指令，CMD_PROMPT 會放入對話框。</p>
+            <input type="text" id="aiCmdFilter" class="form-field" placeholder="篩選標題或指令">
+            <div class="grid-wrap ai-cmd-grid-wrap">
+              <table class="hppv-grid" id="aiCmdGrid">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>標題</th>
+                    <th>CMD_PROMPT</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <div class="ai-dialog-actions">
+              <button class="btn" type="button" id="btnAiCmdDelete"><span class="mi mi-close"></span>刪除</button>
+              <span class="ai-dialog-actions-spacer"></span>
+              <button class="btn" type="submit" value="ok" id="aiCmdOk">確定</button>
+              <button class="btn" type="submit" value="cancel">取消</button>
+            </div>
+          </form>
+        </dialog>
+      </section>
+
+      <section class="panel" id="panel-download">
+        <div class="dl-dialog">
+          <div class="dl-options">
+            <div class="dl-mode">
+              <label class="dl-line"><input type="radio" name="dlMode" id="dlModeOnce" value="once" checked> 手動執行（按「執行」才下載）</label>
+              <label class="dl-line">
+                <input type="radio" name="dlMode" id="dlModeSchedule" value="schedule"> 指定時間下載（每日）
+                <input type="text" id="dlTime" value="23:00" inputmode="numeric" maxlength="5" placeholder="HH:mm" title="24 小時制，例如 23:00">
+              </label>
+              <label class="dl-line">
+                <input type="radio" name="dlMode" id="dlModeInterval" value="interval"> 每隔一段時間下載
+                <input type="number" id="dlMinutes" min="1" max="180" value="5">
+                <span>分鐘</span>
+              </label>
+            </div>
+            <div class="dl-checks">
+              <div class="dl-line dl-section">要下載的資料：</div>
+              <label class="dl-line"><input type="checkbox" id="dlHorses"> 馬匹資料及往績</label>
+              <label class="dl-line"><input type="checkbox" id="dlRacecard"> 排位資料</label>
+              <label class="dl-line"><input type="checkbox" id="dlOdds"> 即時賠率</label>
+              <label class="dl-line"><input type="checkbox" id="dlResults"> 賽馬結果</label>
+              <label class="dl-line"><input type="checkbox" id="dlJockeyKing"> 騎師王</label>
+              <label class="dl-line"><input type="checkbox" id="dlTrainerKing"> 練馬師王</label>
+            </div>
+          </div>
+          <p class="dl-note">「儲存設定」只保存，不會開始下載。選「每隔一段時間／指定時間」後按「執行」：會立刻下載一次，之後由伺服器自動重複（伺服器需保持開啟）。選「手動執行」則只下載一次。下載中可按「取消所有下載」即時中止。開啟程式時不會補抓已過的指定時間。勾選「排位」時會一併更新即時賠率；只抓賠率可不重抓排位頁。「騎師王／練馬師王」抓取馬會賽日積分榜。資料來源網站請按「網站設定」管理。</p>
+          <div class="dl-bottom">
+            <button class="btn" type="button" id="btnDlSites"><span class="mi mi-web"></span>網站設定</button>
+            <button class="btn" type="button" id="btnDlSave"><span class="mi mi-save"></span>儲存設定</button>
+            <button class="btn" type="button" id="btnDlExec"><span class="mi mi-run"></span>執行</button>
+            <button class="btn btn-danger" type="button" id="btnDlCancelAll" title="即時取消所有進行中的下載"><span class="mi mi-close"></span>取消所有下載</button>
+            <button class="btn" type="button" id="btnDlClose"><span class="mi mi-close"></span>關閉</button>
+          </div>
+        </div>
+        <dialog id="dlSitesDialog" class="ai-dialog dl-sites-dialog">
+          <div class="ai-dialog-form">
+            <h3>網站設定</h3>
+            <p class="muted">直接在 GRID 修改名稱／網址後按 Enter 或點其他處即會存檔。可拖曳表頭右緣調整欄寬；右下角可調整視窗大小。</p>
+            <div class="grid-wrap dl-sites-grid-pane">
+              <table class="hppv-grid" id="dlSitesGrid" data-no-grid-nav>
+                <colgroup>
+                  <col style="width: 56px">
+                  <col style="width: 110px">
+                  <col style="width: 280px">
+                  <col style="width: 720px">
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th>啟用</th><th>類別</th><th>名稱</th><th>網址</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <div class="dl-edit-row">
+              <label class="dl-field">類別 <select id="dlKind"></select></label>
+              <label class="dl-field grow">名稱 <input type="text" id="dlName" placeholder="名稱（可選）"></label>
+            </div>
+            <input type="text" id="dlUrl" placeholder="https://…（往績類別請含 {horse_id}）">
+            <p id="dlKindHint" class="dl-hint"></p>
+            <div class="dl-site-actions">
+              <button class="btn" type="button" id="btnDlAdd">新增網站</button>
+              <button class="btn" type="button" id="btnDlApply">套用到選取列</button>
+              <button class="btn" type="button" id="btnDlRemove">刪除選取</button>
+              <button class="btn" type="button" id="btnDlReset">還原預設</button>
+              <span class="ai-dialog-actions-spacer"></span>
+              <button class="btn" type="button" id="btnDlSitesClose">關閉</button>
+            </div>
+          </div>
+          <div class="dl-sites-resize" id="dlSitesResize" title="拖曳調整視窗大小" aria-hidden="true"></div>
+        </dialog>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="taskSettingsDialog" class="ai-dialog task-settings-dialog">
+    <div class="ai-dialog-form task-settings-form">
+      <h3>任務設定</h3>
+      <p class="muted">每日定時下載與任務前備份（伺服器需保持開啟；開啟時不會補抓已過時間）。</p>
+      <label class="dl-line"><input type="checkbox" id="tsHorses"> 啟用：每日自動下載馬匹資料及往績</label>
+      <label class="dl-line ts-field">馬匹/往績時間：
+        <input type="text" id="tsHorsesTime" value="03:00" inputmode="numeric" maxlength="5" placeholder="HH:mm" title="24 小時制，例如 03:00">
+      </label>
+      <label class="dl-line"><input type="checkbox" id="tsRacecard"> 啟用：每日自動下載排位資料</label>
+      <label class="dl-line ts-field">排位時間：
+        <input type="text" id="tsRacecardTime" value="04:00" inputmode="numeric" maxlength="5" placeholder="HH:mm" title="24 小時制，例如 04:00">
+      </label>
+      <label class="dl-line"><input type="checkbox" id="tsBackup"> 啟用：任務執行前先備份資料庫</label>
+      <label class="dl-line ts-field">預備份資料夾：
+        <input type="text" id="tsBackupFolder" class="grow" placeholder="例如：data/backup">
+      </label>
+      <label class="dl-line ts-field">備份檔案：
+        <input type="text" id="tsBackupFilename" class="grow" readonly>
+      </label>
+      <label class="dl-line ts-field">備份時間：
+        <input type="text" id="tsBackupTime" value="02:55" inputmode="numeric" maxlength="5" placeholder="HH:mm" title="24 小時制，例如 02:55">
+      </label>
+      <p class="muted ts-note">說明：任務會在背景執行，下載期間仍可操作畫面。</p>
+      <p class="muted" id="tsMeta"></p>
+      <div class="ai-dialog-actions">
+        <button class="btn" type="button" id="btnTsSave"><span class="mi mi-save"></span>儲存</button>
+        <span class="ai-dialog-actions-spacer"></span>
+        <button class="btn" type="button" id="btnTsClose"><span class="mi mi-close"></span>取消</button>
+      </div>
+    </div>
+  </dialog>
+
+  <div class="status" id="status">就緒</div>
+
+  <script>
+    const THEMES = [
+      {bg:"#eef5fc",panel:"#f7fbff",input:"#f3f7ff",border:"#9eb6d9",focus:"#3d7fd4",text:"#1a2f4a",label:"#14345c",header:"#d9e8fb",bs:"#9ec7f2",be:"#4aa3e8",hs:"#b7d8f8",he:"#63b4ef",bt:"#0d2744",sel:"#7eb6ea",selt:"#083156",cur:"#2f7fd4",curt:"#fff",alt:"#f3f8ff",status:"#e3eefb"},
+      {bg:"#f0faf6",panel:"#f7fcfa",input:"#f2faf7",border:"#9dcdb8",focus:"#3fa97a",text:"#1f3d32",label:"#184836",header:"#d8f0e5",bs:"#9fd9bc",be:"#4fba88",hs:"#b6e5cd",he:"#68c79a",bt:"#12382a",sel:"#7ecfad",selt:"#0f3a29",cur:"#2f9b6d",curt:"#fff",alt:"#f1faf6",status:"#e4f5ed"},
+      {bg:"#fbf6ef",panel:"#fffaf4",input:"#fff7ef",border:"#d9bf9a",focus:"#c48a45",text:"#4a3520",label:"#5a3d22",header:"#f3e4cf",bs:"#e8c89a",be:"#d39a55",hs:"#f0d5b0",he:"#dea66a",bt:"#3d2a16",sel:"#e0b87a",selt:"#3d2a16",cur:"#c48a45",curt:"#fff",alt:"#fbf4ea",status:"#f5eadc"},
+      {bg:"#f2f5f8",panel:"#f8fafc",input:"#f4f7fa",border:"#a8b6c6",focus:"#5b7ea0",text:"#2a3542",label:"#243447",header:"#e1e8f0",bs:"#b7c7d8",be:"#6f8fad",hs:"#c8d5e3",he:"#82a0bb",bt:"#1d2b3a",sel:"#9bb0c6",selt:"#1d2b3a",cur:"#5b7ea0",curt:"#fff",alt:"#f3f6f9",status:"#e8eef4"},
+      {bg:"#f3f8f2",panel:"#f8fbf7",input:"#f4f9f3",border:"#a9c4a4",focus:"#5f9558",text:"#2a3d28",label:"#264224",header:"#ddeedd",bs:"#b3d0ae",be:"#6fad68",hs:"#c5dcc1",he:"#83ba7c",bt:"#1e331c",sel:"#98c492",selt:"#1e331c",cur:"#5f9558",curt:"#fff",alt:"#f2f8f1",status:"#e6f0e5"},
+      {bg:"#faf3f6",panel:"#fff8fb",input:"#fff5f9",border:"#d4a8ba",focus:"#c05d84",text:"#4a2a38",label:"#5a3042",header:"#f3dde7",bs:"#e3adc2",be:"#c96b90",hs:"#ecc0d0",he:"#d47fa1",bt:"#3d2030",sel:"#d992ae",selt:"#3d2030",cur:"#c05d84",curt:"#fff",alt:"#fbf2f6",status:"#f5e6ec"},
+    ];
+    const MENU_STYLES = [
+      ["menubar","① MenuBar 傳統選單"],
+      ["toolbar","② ToolBar 圖示列"],
+      ["treeview","③ TreeView 樹狀選單"],
+      ["imagelist","④ ImageList 圖示清單"],
+      ["listview","⑤ ListView 列表選單"],
+    ];
+    // 預設 treeview（對齊 Windows ui_prefs）
+    let menuStyle = localStorage.getItem("hppv_menu_style") || "treeview";
+    let menuStyleIdx = Math.max(0, MENU_STYLES.findIndex((x) => x[0] === menuStyle));
+    if (menuStyleIdx < 0) {
+      menuStyle = "treeview";
+      menuStyleIdx = MENU_STYLES.findIndex((x) => x[0] === "treeview");
+    }
+    let selectedHorseId = "";
+    let selectHorseSeq = 0;
+    let racecardPayload = null;
+    const RACE_COLS = ["日期","場地","場次","跑道/途程","途程","場地狀況","班/級別","檔","評分","騎師","練馬師","負磅","名次","沿途走位","獨贏賠率","時間","獎金","Flag"];
+    const HORSE_HEADERS = ["HorseId","Brand No.","Name EN","Name ZH","Status"];
+    let horsesSortCol = 3;
+    let horsesSortAsc = true;
+    /** 對齊 Windows MAIN_MENU_ITEMS 順序與圖示語意 */
+    const MAIN_MENU_ITEMS = [
+      {a:"racecard", t:"排位", mi:"mi-list", cls:"menu-racecard"},
+      {a:"results", t:"賽馬結果", mi:"mi-detail", cls:"menu-results"},
+      {a:"kings", t:"騎師王-練馬師王", mi:"mi-report", cls:"menu-kings"},
+      {a:"analysis", t:"賽馬分析", mi:"mi-info", cls:"menu-analysis"},
+      {a:"horses", t:"馬匹-往績", mi:"mi-home", cls:"menu-horses"},
+      {a:"backup", t:"備份資料庫", mi:"mi-save", cls:"menu-backup"},
+      {a:"download", t:"下載資料", mi:"mi-down", cls:"menu-download"},
+    ];
+    function mi(cls) { return `<span class="mi ${cls}" aria-hidden="true"></span>`; }
+    function menuItemHtml(d) {
+      return `<button type="button" class="main-menu-item ${d.cls}" data-action="${d.a}">${mi(d.mi)}<span>${d.t}</span></button>`;
+    }
+
+    /** 狀態列只顯示背景執行訊息；一般 UI 提示請勿呼叫。 */
+    function setBackgroundStatus(msg) {
+      const el = document.getElementById("status");
+      if (el) el.textContent = (msg && String(msg).trim()) ? String(msg) : "就緒";
+    }
+    function setStatus(_msg) {
+      // 故意不寫入狀態列（僅背景下載／排程訊息才更新）
+    }
+
+    function openDetailTab(name) {
+      document.querySelectorAll(".detail-tabbar .tab").forEach((b) =>
+        b.classList.toggle("active", b.dataset.detail === name)
+      );
+      document.querySelectorAll(".detail-pane").forEach((p) =>
+        p.classList.toggle("active", p.id === "detail-" + name)
+      );
+      if (window.HppvGridNav) window.HppvGridNav.bindAll();
+    }
+
+    function applyTheme(idx) {
+      const t = THEMES[idx] || THEMES[0];
+      const r = document.documentElement.style;
+      r.setProperty("--win-bg", t.bg);
+      r.setProperty("--panel-bg", t.panel);
+      r.setProperty("--input-bg", t.input);
+      r.setProperty("--border", t.border);
+      r.setProperty("--border-focus", t.focus);
+      r.setProperty("--text", t.text);
+      r.setProperty("--label", t.label);
+      r.setProperty("--header-bg", t.header);
+      r.setProperty("--btn-start", t.bs);
+      r.setProperty("--btn-end", t.be);
+      r.setProperty("--btn-hover-start", t.hs);
+      r.setProperty("--btn-hover-end", t.he);
+      r.setProperty("--btn-text", t.bt);
+      r.setProperty("--select-row", t.sel);
+      r.setProperty("--select-row-text", t.selt);
+      r.setProperty("--current-cell", t.cur);
+      r.setProperty("--current-cell-text", t.curt);
+      r.setProperty("--alt-row", t.alt);
+      r.setProperty("--status-bg", t.status);
+      localStorage.setItem("hppv_theme_idx", String(idx));
+    }
+
+    const TAB_DEFS = {
+      ai: {t:"AI 助手", cls:"tab-ai"},
+      horses: {t:"馬匹／往績", cls:"tab-horses"},
+      racecard: {t:"排位", cls:"tab-racecard"},
+      results: {t:"賽馬結果", cls:"tab-results"},
+      kings: {t:"騎師王-練馬師王", cls:"tab-kings"},
+      analysis: {t:"賽馬分析", cls:"tab-analysis"},
+      print: {t:"列印／報表", cls:"tab-print"},
+      download: {t:"下載資料", cls:"tab-download"},
+    };
+    /** 啟動只開 AI；其餘按需加入，可關閉 */
+    let openTabs = ["ai"];
+    let activeTab = "ai";
+
+    function renderMainTabs() {
+      const bar = document.getElementById("mainTabs");
+      bar.innerHTML = openTabs.map((name) => {
+        const d = TAB_DEFS[name] || {t: name, cls: ""};
+        const active = name === activeTab ? " active" : "";
+        return `<button class="tab ${d.cls}${active}" data-tab="${name}" type="button">` +
+          `<span class="tab-title">${d.t}</span>` +
+          `<span class="tab-close" data-close="${name}" title="關閉">×</span></button>`;
+      }).join("");
+      bar.querySelectorAll(".tab[data-tab]").forEach((b) => {
+        b.addEventListener("click", (ev) => {
+          if (ev.target.closest("[data-close]")) return;
+          openTab(b.dataset.tab);
+        });
+      });
+      bar.querySelectorAll("[data-close]").forEach((x) => {
+        x.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          closeTab(x.dataset.close);
+        });
+      });
+    }
+
+    function closeTab(name) {
+      const i = openTabs.indexOf(name);
+      if (i < 0) return;
+      openTabs.splice(i, 1);
+      if (openTabs.length === 0) {
+        openTabs = ["ai"];
+        activeTab = "ai";
+      } else if (activeTab === name) {
+        activeTab = openTabs[Math.max(0, i - 1)];
+      }
+      openTab(activeTab, false);
+    }
+
+    function openTab(name, ensureOpen = true) {
+      if (!TAB_DEFS[name]) return;
+      if (ensureOpen && !openTabs.includes(name)) openTabs.push(name);
+      activeTab = name;
+      renderMainTabs();
+      document.querySelectorAll(".content > .panel").forEach((p) =>
+        p.classList.toggle("active", p.id === "panel-" + name)
+      );
+      document.getElementById("viewLabel").textContent = "目前開啟：" + (TAB_DEFS[name].t || name);
+      setStatus("已切換至：" + (TAB_DEFS[name].t || name));
+      if (name === "horses") loadHorses();
+      if (name === "racecard") loadRacecard();
+      if (name === "results") loadResults();
+      if (name === "kings") loadKings();
+      if (name === "analysis") loadAnalysisMeta();
+      if (name === "download") loadDownloadSources();
+      if (window.HppvGridNav) window.HppvGridNav.bindAll();
+    }
+
+    function renderMainMenuItems() {
+      const dd = document.getElementById("menuMainItems");
+      if (dd) dd.innerHTML = MAIN_MENU_ITEMS.map(menuItemHtml).join("");
+      const themeNames = ["① Fusion 科技風（預設）","② 薄荷清新","③ 暖杏米白","④ 霧灰藍","⑤ 薄霧綠","⑥ 淡玫瑰粉"];
+      const themeIdx = Number(document.getElementById("themeSelect")?.value || localStorage.getItem("hppv_theme_idx") || "0");
+      const themePanel = document.getElementById("themeSubmenu");
+      if (themePanel) {
+        themePanel.innerHTML = themeNames.map((name, i) =>
+          `<button type="button" class="${i===themeIdx?"active":""}" data-action="theme-set" data-theme="${i}">${name}</button>`
+        ).join("");
+      }
+      const stylePanel = document.getElementById("menuStyleSubmenu");
+      if (stylePanel) {
+        stylePanel.innerHTML = MENU_STYLES.map((pair, i) =>
+          `<button type="button" class="${i===menuStyleIdx?"active":""}" data-action="menu-style-set" data-style="${i}">${pair[1]}</button>`
+        ).join("");
+      }
+    }
+
+    function renderSideMenu() {
+      const side = document.getElementById("sideMenu");
+      const items = document.getElementById("sideItems");
+      const toolbarMain = document.getElementById("toolbarMain");
+      const showSide = menuStyle === "treeview" || menuStyle === "imagelist" || menuStyle === "listview";
+      const showToolbar = menuStyle === "toolbar";
+      side.className = "side-menu" + (showSide ? "" : " hidden")
+        + (menuStyle === "imagelist" ? " imagelist" : "")
+        + (menuStyle === "listview" ? " listview" : "")
+        + (menuStyle === "treeview" ? " treeview" : "");
+      // 對齊 Windows：非 menubar 時隱藏「主選單」下拉，其餘 MenuBar（系統設定／AI／介面）保留
+      document.getElementById("menu-main").style.display = menuStyle === "menubar" ? "" : "none";
+      toolbarMain.classList.toggle("hidden", !showToolbar);
+      if (showToolbar) {
+        // ToolBar：圖示在左、文字在右，13pt 粗體（對齊 QToolBar TextBesideIcon）
+        toolbarMain.innerHTML = MAIN_MENU_ITEMS.map((d) =>
+          `<button class="toolbar-menu-btn ${d.cls}" type="button" data-action="${d.a}">${mi(d.mi)}<span>${d.t}</span></button>`
+        ).join("");
+      }
+      if (menuStyle === "treeview") {
+        // TreeView：根節點「功能選單」+ 子項（對齊 QTreeWidget）
+        items.innerHTML =
+          `<div class="tree-root">` +
+          `<div class="tree-root-label">功能選單</div>` +
+          `<div class="tree-children">` +
+          MAIN_MENU_ITEMS.map((d) =>
+            `<button class="side-item tree-item ${d.cls}" type="button" data-action="${d.a}">${mi(d.mi)}<span>${d.t}</span></button>`
+          ).join("") +
+          `</div></div>`;
+      } else if (showSide) {
+        items.innerHTML = MAIN_MENU_ITEMS.map((d) =>
+          `<button class="side-item ${d.cls}" type="button" data-action="${d.a}">${mi(d.mi)}<span>${d.t}</span></button>`
+        ).join("");
+      } else {
+        items.innerHTML = "";
+      }
+    }
+
+    function updateHorseHeaderLabels() {
+      document.querySelectorAll("#horsesGrid thead th").forEach((th) => {
+        const col = Number(th.dataset.col);
+        let label = HORSE_HEADERS[col] || th.textContent;
+        th.classList.remove("sorted-asc", "sorted-desc");
+        if (col === horsesSortCol) {
+          label = HORSE_HEADERS[col] + (horsesSortAsc ? " ↑" : " ↓");
+          th.classList.add(horsesSortAsc ? "sorted-asc" : "sorted-desc");
+        }
+        th.textContent = label;
+      });
+    }
+
+    function sortHorseRows(rows) {
+      const keyOf = (r) => {
+        const vals = [r.horse_id, r.brand_no, r.name_en, r.name_zh, r.status];
+        return String(vals[horsesSortCol] || "").toLowerCase();
+      };
+      rows.sort((a, b) => {
+        const av = keyOf(a), bv = keyOf(b);
+        if (av < bv) return horsesSortAsc ? -1 : 1;
+        if (av > bv) return horsesSortAsc ? 1 : -1;
+        return 0;
+      });
+      return rows;
+    }
+
+    function isNumericText(text) {
+      const s = String(text || "").trim().replace(/,/g, "");
+      if (!s) return false;
+      return /^-?\d+(\.\d+)?$/.test(s);
+    }
+
+    /** 資料不足 8 筆時補空白列；超過 8 筆由 .grid-viewport-8 垂直捲動 */
+    function padGridRows(table, minRows) {
+      const tb = table.tBodies[0];
+      if (!tb) return;
+      tb.querySelectorAll("tr.grid-pad").forEach((tr) => tr.remove());
+      const dataRows = tb.querySelectorAll("tr:not(.grid-pad)");
+      const colCount =
+        (table.tHead && table.tHead.querySelectorAll("th").length) ||
+        (dataRows[0] && dataRows[0].cells.length) ||
+        0;
+      if (colCount <= 0) return;
+      for (let i = dataRows.length; i < minRows; i++) {
+        const tr = document.createElement("tr");
+        tr.className = "grid-pad";
+        tr.setAttribute("aria-hidden", "true");
+        for (let c = 0; c < colCount; c++) {
+          const td = document.createElement("td");
+          td.innerHTML = "&nbsp;";
+          tr.appendChild(td);
+        }
+        tb.appendChild(tr);
+      }
+    }
+
+    /** 文字靠左、數字靠右；欄位標題對齊與該欄資料一致 */
+    function applyGridAlignment(table) {
+      const ths = Array.from(table.querySelectorAll("thead th"));
+      const dataRows = Array.from(table.querySelectorAll("tbody tr:not(.grid-pad)"));
+      const colCount = ths.length;
+      const colAllNumeric = Array(colCount).fill(true);
+      const colHasValue = Array(colCount).fill(false);
+      dataRows.forEach((tr) => {
+        Array.from(tr.cells).forEach((td, i) => {
+          if (i >= colCount) return;
+          const text = td.textContent || "";
+          const num = isNumericText(text);
+          td.classList.toggle("num", num);
+          if (text.trim()) {
+            colHasValue[i] = true;
+            if (!num) colAllNumeric[i] = false;
+          }
+        });
+      });
+      ths.forEach((th, i) => {
+        th.classList.toggle("num", !!(colHasValue[i] && colAllNumeric[i]));
+      });
+    }
+
+    function finalizeDataGrid(table, minRows) {
+      if (!table) return;
+      padGridRows(table, minRows == null ? 8 : minRows);
+      applyGridAlignment(table);
+    }
+
+    async function loadHorses() {
+      const q = document.getElementById("horseQ").value.trim();
+      const res = await fetch("/api/app/horses?q=" + encodeURIComponent(q));
+      const data = await res.json();
+      document.getElementById("dbPath").value = data.db_path || "";
+      const rows = sortHorseRows(data.rows || []);
+      const table = document.getElementById("horsesGrid");
+      const tb = table.querySelector("tbody");
+      tb.innerHTML = rows.map((r) =>
+        `<tr data-id="${r.horse_id}">
+          <td>${r.horse_id||""}</td><td>${r.brand_no||""}</td><td>${r.name_en||""}</td>
+          <td>${r.name_zh||""}</td><td>${r.status||""}</td>
+        </tr>`
+      ).join("");
+      updateHorseHeaderLabels();
+      finalizeDataGrid(table, 6);
+      const n = rows.length;
+      const cur = selectedHorseId && rows.some((r) => r.horse_id === selectedHorseId) ? 1 : (n ? 1 : 0);
+      document.getElementById("horseCount").textContent = `Grid Row ${cur}/${n}`;
+      setStatus(n ? `現役馬匹總數 ${data.total}（目前列表 ${n}）` : "未找到符合馬名的資料（horses 表可能尚未更新）。");
+      if (window.HppvGridNav) {
+        window.HppvGridNav.bind(table, {
+          editable: false,
+          focus: false,
+        });
+      }
+      if (rows.length) {
+        const keep = rows.find((r) => r.horse_id === selectedHorseId) || rows[0];
+        const tr = Array.from(tb.querySelectorAll("tr:not(.grid-pad)"))
+          .find((r) => r.dataset.id === keep.horse_id) || null;
+        if (tr && window.HppvGridNav) {
+          const td = tr.querySelector("td");
+          if (td) window.HppvGridNav.focusCell(td, { edit: false });
+        } else {
+          selectHorse(keep.horse_id, tr);
+        }
+      } else {
+        clearHorseDetail();
+      }
+    }
+
+    function clearHorseDetail() {
+      selectedHorseId = "";
+      ["fldHorseId","fldBrandNo","fldNameEn","fldNameZh","fldStatus"].forEach((id) => {
+        document.getElementById(id).value = "";
+      });
+      document.getElementById("racesHead").innerHTML = RACE_COLS.map((c) => `<th>${c}</th>`).join("");
+      document.querySelector("#racesGrid tbody").innerHTML = "";
+      finalizeDataGrid(document.getElementById("racesGrid"));
+    }
+
+    async function selectHorse(horseId, tr) {
+      selectedHorseId = horseId || "";
+      if (!selectedHorseId) return;
+      const seq = ++selectHorseSeq;
+      document.querySelectorAll("#horsesGrid tbody tr:not(.grid-pad)").forEach((r) => r.classList.remove("grid-selected"));
+      if (!tr) {
+        tr = Array.from(document.querySelectorAll("#horsesGrid tbody tr:not(.grid-pad)"))
+          .find((r) => r.dataset.id === selectedHorseId) || null;
+      }
+      if (tr) tr.classList.add("grid-selected");
+      const rows = document.querySelectorAll("#horsesGrid tbody tr:not(.grid-pad)");
+      let idx = 0;
+      rows.forEach((r, i) => { if (r.dataset.id === selectedHorseId) idx = i + 1; });
+      document.getElementById("horseCount").textContent = `Grid Row ${idx}/${rows.length}`;
+
+      const res = await fetch("/api/app/horse/" + encodeURIComponent(selectedHorseId));
+      const data = await res.json();
+      if (seq !== selectHorseSeq) return; // 忽略過期的紀錄移動回應
+      const h = data.horse || {};
+      document.getElementById("fldHorseId").value = h.horse_id || "";
+      document.getElementById("fldBrandNo").value = h.brand_no || "";
+      document.getElementById("fldNameEn").value = h.name_en || "";
+      document.getElementById("fldNameZh").value = h.name_zh || "";
+      document.getElementById("fldStatus").value = h.status || "";
+
+      const cols = data.race_columns || RACE_COLS;
+      document.getElementById("racesHead").innerHTML = cols.map((c) => `<th>${c}</th>`).join("");
+      const racesTable = document.getElementById("racesGrid");
+      const tb = racesTable.querySelector("tbody");
+      tb.innerHTML = (data.races || []).map((r) =>
+        `<tr>${cols.map((c) => `<td>${r[c] ?? ""}</td>`).join("")}</tr>`
+      ).join("");
+      finalizeDataGrid(racesTable);
+      if (window.HppvGridNav) window.HppvGridNav.bind(racesTable, { editable: false });
+    }
+
+    let racecardMeetingsLoaded = false;
+    const RACE_INFO_PAIRS = [
+      ["場事名稱", "event_name"],
+      ["日子", "calendar_date"],
+      ["星期", "weekday"],
+      ["比賽場地", "meeting_venue"],
+      ["時間", "post_time"],
+      ["場地", "race_course_area"],
+      ["賽道", "track_name"],
+      ["途程", "distance"],
+      ["獎金", "prize_money"],
+      ["評分範圍", "rating_range"],
+      ["班次", "race_class"],
+    ];
+
+    async function loadRacecard(opts) {
+      const sel = document.getElementById("racecardMeeting");
+      let q = "";
+      if (opts && opts.date) {
+        q = "?date=" + encodeURIComponent(opts.date)
+          + (opts.course ? "&course=" + encodeURIComponent(opts.course) : "");
+      } else if (sel && sel.value) {
+        const [d, c] = sel.value.split("|");
+        if (d) q = "?date=" + encodeURIComponent(d) + (c ? "&course=" + encodeURIComponent(c) : "");
+      }
+      const res = await fetch("/api/app/racecard" + q);
+      racecardPayload = await res.json();
+      const lu = racecardPayload.last_update || "尚未更新";
+      document.getElementById("racecardMeta").textContent =
+        lu === "尚未更新" || !lu ? "上次更新時間：尚未更新"
+          : `上次更新時間：${lu}`;
+      const meetings = racecardPayload.meetings || [];
+      const curKey = (racecardPayload.race_date || "") + "|" + (racecardPayload.racecourse_code || "");
+      // 賽日清單只在首次載入／強制刷新時寫入（對齊 Windows：切換賽日不重讀清單）
+      const forceMeetings = !!(opts && opts.refreshMeetings);
+      if (forceMeetings || !racecardMeetingsLoaded || sel.options.length === 0) {
+        sel.innerHTML = meetings.map((m) => {
+          const key = m.race_date + "|" + m.racecourse;
+          return `<option value="${key}" ${key===curKey?"selected":""}>${m.label}</option>`;
+        }).join("");
+        racecardMeetingsLoaded = sel.options.length > 0;
+      } else if (curKey && sel.value !== curKey) {
+        const opt = Array.from(sel.options).find((o) => o.value === curKey);
+        if (opt) sel.value = curKey;
+      }
+      const tabs = document.getElementById("racecardTabs");
+      const races = racecardPayload.races || [];
+      const keepRace = document.querySelector("#racecardTabs .tab.active");
+      const keepNo = keepRace ? keepRace.dataset.race : null;
+      // 分頁標題對齊 Windows：第一場／第二場…
+      tabs.innerHTML = races.map((r, i) =>
+        `<button class="tab ${i===0?"active":""}" type="button" data-race="${r.race_no}">${r.label || ("第 " + r.race_no + " 場")}</button>`
+      ).join("");
+      tabs.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => showRace(b.dataset.race)));
+      if (races.length) {
+        const pick = (keepNo && races.some((r) => String(r.race_no) === String(keepNo)))
+          ? keepNo : races[0].race_no;
+        showRace(pick);
+        setStatus(`排位：${racecardPayload.race_date || ""} ${racecardPayload.racecourse || ""}（${races.length} 場）`);
+      } else {
+        document.getElementById("racecardRaceInfo").hidden = true;
+        document.getElementById("racecardRaceInfo").innerHTML = "";
+        document.querySelector("#racecardGrid thead tr").innerHTML = "";
+        document.querySelector("#racecardGrid tbody").innerHTML = "";
+        setStatus("沒有排位資料可顯示");
+      }
+    }
+
+    function renderRaceInfo(info) {
+      const box = document.getElementById("racecardRaceInfo");
+      if (!info) {
+        box.hidden = false;
+        box.innerHTML = '<div class="ri-tip">（此場尚無場次摘要：請按「更新資料」重新抓取，或該日賽事頁面暫無資料）</div>';
+        return;
+      }
+      box.hidden = false;
+      box.innerHTML = RACE_INFO_PAIRS.map(([cn, key]) => {
+        const v = (info[key] == null || String(info[key]).trim() === "") ? "—" : String(info[key]);
+        return `<span class="ri-label">${cn}：</span><span class="ri-value">${v}</span>`;
+      }).join("");
+    }
+
+    function showRace(raceNo) {
+      const race = (racecardPayload.races || []).find((r) => String(r.race_no) === String(raceNo));
+      document.querySelectorAll("#racecardTabs .tab").forEach((b) =>
+        b.classList.toggle("active", String(b.dataset.race) === String(raceNo))
+      );
+      renderRaceInfo(race ? race.info : null);
+      const cols = racecardPayload.columns || [];
+      document.querySelector("#racecardGrid thead tr").innerHTML =
+        cols.map((c) => `<th>${c}</th>`).join("");
+      const rows = (race && race.rows) || [];
+      document.querySelector("#racecardGrid tbody").innerHTML = rows.map((row) =>
+        `<tr data-horse="${row.__horse_id || ""}">${cols.map((c) => `<td>${row[c] ?? ""}</td>`).join("")}</tr>`
+      ).join("");
+      document.querySelectorAll("#racecardGrid tbody tr").forEach((tr) => {
+        tr.addEventListener("dblclick", () => {
+          const hid = tr.dataset.horse;
+          if (hid) {
+            openTab("horses");
+            selectHorse(hid, null).then(() => {
+              const htr = document.querySelector(`#horsesGrid tr[data-id="${hid}"]`);
+              if (htr) {
+                htr.scrollIntoView({block:"nearest"});
+                selectHorse(hid, htr);
+                openDetailTab("races");
+              }
+            });
+          }
+        });
+      });
+      padGridRows(document.getElementById("racecardGrid"), 12);
+      applyGridAlignment(document.getElementById("racecardGrid"));
+      if (window.HppvGridNav) window.HppvGridNav.bind(document.getElementById("racecardGrid"), { editable: false });
+    }
+
+    function formatDownloadStatus(data) {
+      if (!data) return "就緒";
+      if (data.display) return data.display;
+      const msg = data.message || "";
+      const cur = Number(data.current || 0);
+      const tot = Number(data.total || 0);
+      if (data.running && tot > 0) return `下載：${msg}（${cur}/${tot}）`;
+      if (data.running) return msg ? `下載：${msg}` : "背景下載執行中…";
+      return data.last_result || msg || "就緒";
+    }
+    async function pollDownloadStatusOnce() {
+      const res = await fetch("/api/app/download_status");
+      const data = await res.json();
+      setBackgroundStatus(formatDownloadStatus(data));
+      return data;
+    }
+    function startDownloadStatusPolling() {
+      if (window._dlStatusTimer) clearInterval(window._dlStatusTimer);
+      window._dlStatusTimer = setInterval(() => {
+        pollDownloadStatusOnce().catch(() => {});
+      }, 500);
+    }
+    function stopDownloadStatusPolling() {
+      if (window._dlStatusTimer) {
+        clearInterval(window._dlStatusTimer);
+        window._dlStatusTimer = null;
+      }
+    }
+    async function runDownloadJob(body) {
+      startDownloadStatusPolling();
+      try {
+        await pollDownloadStatusOnce();
+        const res = await fetch("/api/app/download_run", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        await pollDownloadStatusOnce();
+        return data;
+      } finally {
+        stopDownloadStatusPolling();
+      }
+    }
+    async function updateRacecardFromWeb() {
+      const btn = document.getElementById("btnReloadRacecard");
+      btn.disabled = true;
+      setBackgroundStatus("下載：正在下載排位與即時賠率…");
+      try {
+        const data = await runDownloadJob({racecard: true});
+        setBackgroundStatus(data.message || (data.ok ? "下載完成（排位）" : "下載失敗（排位）"));
+        if (!data.ok) alert(data.message || "排位更新失敗");
+        await loadRacecard({refreshMeetings: true});
+      } catch (err) {
+        alert("更新請求失敗：" + err);
+        setBackgroundStatus("下載失敗（排位）");
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    let resultsMeetingsLoaded = false;
+    async function loadResults(date, course) {
+      const sel = document.getElementById("resultsMeeting");
+      // 已有選取時沿用，避免重讀／重畫賽日清單
+      let useDate = date;
+      let useCourse = course;
+      if (!useDate && sel.value) {
+        const parts = sel.value.split("|");
+        useDate = parts[0];
+        useCourse = parts[1] || "";
+      }
+      let url = "/api/app/results";
+      const qs = [];
+      if (useDate) qs.push("date=" + encodeURIComponent(useDate));
+      if (useCourse) qs.push("course=" + encodeURIComponent(useCourse));
+      if (qs.length) url += "?" + qs.join("&");
+      const res = await fetch(url);
+      const data = await res.json();
+      const meetings = data.meetings || [];
+      const cur = (data.race_date || "") + "|" + (data.racecourse_code || "");
+      // 賽日清單只在首次載入（或清單仍空）時寫入
+      if (!resultsMeetingsLoaded || sel.options.length === 0) {
+        sel.innerHTML = meetings.map((m) => {
+          const v = m.race_date + "|" + m.racecourse;
+          return `<option value="${v}" ${v === cur ? "selected" : ""}>${m.label}</option>`;
+        }).join("");
+        resultsMeetingsLoaded = sel.options.length > 0;
+      } else if (cur && sel.value !== cur) {
+        const opt = Array.from(sel.options).find((o) => o.value === cur);
+        if (opt) sel.value = cur;
+      }
+      const tbody = document.querySelector("#resultsGrid tbody");
+      tbody.innerHTML = (data.rows || []).map((r) => `
+        <tr data-id="${r.horse_id || ""}">
+          <td>${r.race_no || ""}</td><td>${r.finish_pos || ""}</td><td>${r.horse_no || ""}</td>
+          <td>${r.name_zh || ""}</td><td>${r.brand_no || ""}</td>
+          <td>${r.class_band || ""}</td><td>${r.rating || ""}</td>
+          <td>${r.jockey || ""}</td><td>${r.trainer || ""}</td>
+          <td>${r.handicap || ""}</td><td>${r.draw || ""}</td><td>${r.running_pos || ""}</td>
+          <td>${r.time || ""}</td>
+          <td>${r.win_odds || ""}</td><td>${r.place_odds || ""}</td><td>${r.distance || ""}</td>
+        </tr>`).join("");
+      setStatus(`賽馬結果：${data.race_date || ""} ${data.racecourse || ""}（${(data.rows||[]).length} 筆）`);
+      if (window.HppvGridNav) window.HppvGridNav.bind(document.getElementById("resultsGrid"), { editable: false });
+    }
+
+    let kingsMeetingsLoaded = false;
+    let kingsPayload = null;
+
+    function kingsDayRowHtml(r) {
+      let name = r.person_name || "";
+      if (Number(r.is_other) && name && !String(name).startsWith("其他")) {
+        name = "（其他）" + name;
+      }
+      return `<tr>
+        <td>${r.entry_no || ""}</td><td>${name}</td><td>${r.day_points || ""}</td>
+        <td>${r.wins || ""}</td><td>${r.seconds || ""}</td><td>${r.thirds || ""}</td>
+        <td>${r.fourths || ""}</td><td>${r.remark || ""}</td>
+      </tr>`;
+    }
+
+    function kingsSeasonRowHtml(r) {
+      return `<tr>
+        <td>${r.rank || ""}</td><td>${r.person_name || ""}</td>
+        <td>${r.season_points || ""}</td>
+        <td>${r.wins || ""}</td><td>${r.seconds || ""}</td>
+        <td>${r.thirds || ""}</td><td>${r.fourths || ""}</td>
+        <td>${r.meeting_count || ""}</td>
+      </tr>`;
+    }
+
+    function renderKingsGrid() {
+      const trainerTable = document.getElementById("kingsTrainerGrid");
+      const jockeyTable = document.getElementById("kingsJockeyGrid");
+      const trainerSeasonTable = document.getElementById("kingsTrainerSeasonGrid");
+      const jockeySeasonTable = document.getElementById("kingsJockeySeasonGrid");
+      trainerTable.querySelector("tbody").innerHTML =
+        ((kingsPayload && kingsPayload.trainer_rows) || []).map(kingsDayRowHtml).join("");
+      jockeyTable.querySelector("tbody").innerHTML =
+        ((kingsPayload && kingsPayload.jockey_rows) || []).map(kingsDayRowHtml).join("");
+      trainerSeasonTable.querySelector("tbody").innerHTML =
+        ((kingsPayload && kingsPayload.trainer_season_rows) || []).map(kingsSeasonRowHtml).join("");
+      jockeySeasonTable.querySelector("tbody").innerHTML =
+        ((kingsPayload && kingsPayload.jockey_season_rows) || []).map(kingsSeasonRowHtml).join("");
+      [trainerTable, jockeyTable, trainerSeasonTable, jockeySeasonTable].forEach((t) => {
+        finalizeDataGrid(t, 6);
+        if (window.HppvGridNav) window.HppvGridNav.bind(t, { editable: false });
+      });
+    }
+
+    async function loadKings(forceMeetings = false) {
+      const sel = document.getElementById("kingsMeeting");
+      const cur = sel.value || "";
+      let url = "/api/app/kings";
+      if (cur) url += "?date=" + encodeURIComponent(cur);
+      let res;
+      try {
+        res = await fetch(url);
+      } catch (err) {
+        setBackgroundStatus("騎師王／練馬師王載入失敗：" + err);
+        return;
+      }
+      if (!res.ok) {
+        setBackgroundStatus(`騎師王／練馬師王 API 錯誤：HTTP ${res.status}（請重啟 WEB 伺服器）`);
+        kingsPayload = {meetings: [], jockey_rows: [], trainer_rows: []};
+        renderKingsGrid();
+        return;
+      }
+      kingsPayload = await res.json();
+      const meetings = kingsPayload.meetings || [];
+      const raceDate = kingsPayload.race_date || "";
+      if (forceMeetings || !kingsMeetingsLoaded || sel.options.length === 0) {
+        sel.innerHTML = meetings.map((m) => {
+          const v = m.race_date;
+          return `<option value="${v}" ${v === raceDate ? "selected" : ""}>${m.label || v}</option>`;
+        }).join("");
+        kingsMeetingsLoaded = sel.options.length > 0;
+      } else if (raceDate && sel.value !== raceDate) {
+        const opt = Array.from(sel.options).find((o) => o.value === raceDate);
+        if (opt) sel.value = raceDate;
+      }
+      renderKingsGrid();
+      const tj = (kingsPayload.trainer_rows || []).length;
+      const jk = (kingsPayload.jockey_rows || []).length;
+      setStatus(`練馬師王／騎師王：${raceDate || ""}（練 ${tj}／騎 ${jk}）`);
+      if (!meetings.length) {
+        setBackgroundStatus("尚無騎師王／練馬師王資料，請先到「下載資料」勾選後執行下載");
+      }
+    }
+
+    let tsBackupTemplate = "Racing_%Y%m%d_%H%M.sqlite3";
+    function tsValidTime(text) {
+      if (!/^\d{2}:\d{2}$/.test(text || "")) return false;
+      const hh = Number(text.slice(0, 2));
+      const mm = Number(text.slice(3, 5));
+      return hh <= 23 && mm <= 59;
+    }
+    function tsPad2(n) {
+      return String(n).padStart(2, "0");
+    }
+    function tsPreviewBackupFilename(timeText) {
+      const t = tsValidTime(timeText) ? timeText : "02:55";
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = tsPad2(now.getMonth() + 1);
+      const d = tsPad2(now.getDate());
+      const hh = t.slice(0, 2);
+      const mm = t.slice(3, 5);
+      // 對齊 Python strftime：%Y%m%d_%H%M
+      return String(tsBackupTemplate || "Racing_%Y%m%d_%H%M.sqlite3")
+        .replace(/%Y/g, String(y))
+        .replace(/%m/g, m)
+        .replace(/%d/g, d)
+        .replace(/%H/g, hh)
+        .replace(/%M/g, mm);
+    }
+    function syncTsBackupEnabled() {
+      const on = document.getElementById("tsBackup").checked;
+      document.getElementById("tsBackupTime").disabled = !on;
+      document.getElementById("tsBackupFolder").disabled = !on;
+    }
+    function syncTsBackupFilenamePreview() {
+      document.getElementById("tsBackupFilename").value =
+        tsPreviewBackupFilename(document.getElementById("tsBackupTime").value);
+    }
+    function applyTaskSettings(settings) {
+      const s = settings || {};
+      tsBackupTemplate = s.backup_filename_template || tsBackupTemplate;
+      document.getElementById("tsHorses").checked = !!s.enable_horses_task;
+      document.getElementById("tsHorsesTime").value = s.horses_task_time || "03:00";
+      document.getElementById("tsRacecard").checked = !!s.enable_racecard_task;
+      document.getElementById("tsRacecardTime").value = s.racecard_task_time || "04:00";
+      document.getElementById("tsBackup").checked = !!s.enable_backup;
+      document.getElementById("tsBackupFolder").value = s.backup_folder || "";
+      document.getElementById("tsBackupTime").value = s.backup_time || "02:55";
+      document.getElementById("tsBackupFilename").value =
+        s.backup_filename || tsPreviewBackupFilename(s.backup_time || "02:55");
+      const bits = [];
+      if (s.last_run_horses) bits.push(`馬匹上次：${s.last_run_horses}`);
+      if (s.last_run_racecard) bits.push(`排位上次：${s.last_run_racecard}`);
+      if (s.last_backup) bits.push(`備份上次：${s.last_backup}`);
+      document.getElementById("tsMeta").textContent = bits.join("　");
+      syncTsBackupEnabled();
+    }
+    async function loadTaskSettings() {
+      const res = await fetch("/api/app/task_settings");
+      const data = await res.json();
+      if (!res.ok || data.ok === false) throw new Error(data.message || "讀取任務設定失敗");
+      applyTaskSettings(data.settings || {});
+      return data.settings;
+    }
+    async function saveTaskSettings() {
+      const horsesTime = document.getElementById("tsHorsesTime").value.trim();
+      const racecardTime = document.getElementById("tsRacecardTime").value.trim();
+      const backupTime = document.getElementById("tsBackupTime").value.trim();
+      if (!tsValidTime(horsesTime) || !tsValidTime(racecardTime) || !tsValidTime(backupTime)) {
+        alert("時間請用 24 小時制 HH:mm，例如 03:00。");
+        return null;
+      }
+      const body = {
+        enable_horses_task: document.getElementById("tsHorses").checked,
+        horses_task_time: horsesTime,
+        enable_racecard_task: document.getElementById("tsRacecard").checked,
+        racecard_task_time: racecardTime,
+        enable_backup: document.getElementById("tsBackup").checked,
+        backup_folder: document.getElementById("tsBackupFolder").value.trim(),
+        backup_time: backupTime,
+      };
+      const res = await fetch("/api/app/task_settings", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok || data.ok === false) {
+        alert(data.message || "儲存任務設定失敗");
+        return null;
+      }
+      if (data.settings) applyTaskSettings(data.settings);
+      return data;
+    }
+    async function openTaskSettingsDialog() {
+      const dlg = document.getElementById("taskSettingsDialog");
+      try {
+        await loadTaskSettings();
+      } catch (err) {
+        alert(String(err));
+        return;
+      }
+      if (typeof dlg.showModal === "function") dlg.showModal();
+      else dlg.setAttribute("open", "open");
+      setStatus("任務設定");
+    }
+    function closeTaskSettingsDialog() {
+      const dlg = document.getElementById("taskSettingsDialog");
+      if (dlg && typeof dlg.close === "function") dlg.close();
+      else if (dlg) dlg.removeAttribute("open");
+    }
+
+    async function runAction(action, el) {
+      if (action === "horses") openTab("horses");
+      else if (action === "racecard") openTab("racecard");
+      else if (action === "results") openTab("results");
+      else if (action === "kings") openTab("kings");
+      else if (action === "analysis") openTab("analysis");
+      else if (action === "print") openTab("print");
+      else if (action === "ai") openTab("ai");
+      else if (action === "download") openTab("download");
+      else if (action === "backup") {
+        const res = await fetch("/api/app/backup", {method:"POST"});
+        const data = await res.json();
+        alert(data.message || JSON.stringify(data));
+        setStatus(data.message || "備份完成");
+      } else if (action === "task-settings") {
+        await openTaskSettingsDialog();
+      } else if (action === "theme-set") {
+        const idx = Number((el && el.dataset.theme) || 0);
+        document.getElementById("themeSelect").value = String(idx);
+        applyTheme(idx);
+        renderMainMenuItems();
+        setStatus("主題風格已切換");
+      } else if (action === "menu-style-set") {
+        menuStyleIdx = Number((el && el.dataset.style) || 0);
+        menuStyle = MENU_STYLES[menuStyleIdx][0];
+        localStorage.setItem("hppv_menu_style", menuStyle);
+        renderSideMenu();
+        renderMainMenuItems();
+        setStatus("主選單樣式：" + MENU_STYLES[menuStyleIdx][1]);
+      } else if (action === "windows") {
+        alert("切換 Windows 介面：\n請回到已開啟的 Racing Windows 視窗（工具列有「WEB 介面」可再切回本頁）。\n若尚未啟動：python -m racing");
+      } else if (action === "legacy-web") {
+        location.href = "{{ url_for('legacy_dashboard') }}";
+      } else if (action === "exit") {
+        window.close();
+        // 瀏覽器若禁止關閉非腳本開啟的分頁，改顯示提示
+        setTimeout(() => {
+          if (!window.closed) {
+            alert("請關閉此瀏覽器分頁以離開 WEB 介面。\nWindows 主程式請於桌面視窗右上角按「離開」。");
+          }
+        }, 120);
+      }
+      document.querySelectorAll(".menu").forEach((m) => m.classList.remove("open"));
+    }
+
+    document.querySelectorAll(".menubar .menu > button").forEach((btn) => {
+      btn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const menu = btn.parentElement;
+        const open = menu.classList.contains("open");
+        document.querySelectorAll(".menu").forEach((m) => m.classList.remove("open"));
+        if (!open) menu.classList.add("open");
+      });
+    });
+    document.addEventListener("click", () => document.querySelectorAll(".menu").forEach((m) => m.classList.remove("open")));
+    document.body.addEventListener("click", (ev) => {
+      const t = ev.target.closest("[data-action]");
+      if (t) runAction(t.dataset.action, t);
+    });
+    document.getElementById("themeSelect").addEventListener("change", (e) => applyTheme(Number(e.target.value)));
+    document.getElementById("btnSearch").addEventListener("click", loadHorses);
+    document.getElementById("btnFilter").addEventListener("click", loadHorses);
+    document.querySelectorAll(".detail-tabbar .tab").forEach((b) =>
+      b.addEventListener("click", () => openDetailTab(b.dataset.detail))
+    );
+    document.querySelectorAll("#horsesGrid thead th").forEach((th) => {
+      th.style.cursor = "pointer";
+      th.addEventListener("click", () => {
+        const col = Number(th.dataset.col);
+        if (horsesSortCol === col) horsesSortAsc = !horsesSortAsc;
+        else { horsesSortCol = col; horsesSortAsc = true; }
+        loadHorses();
+      });
+    });
+    /* 搜尋框：Enter＝搜尋；↓＝進入 Grid（對齊 Windows 操作習慣） */
+    document.getElementById("horseQ").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); loadHorses(); }
+      else if (e.key === "ArrowDown") {
+        e.preventDefault();
+        const first = document.querySelector("#horsesGrid tbody tr:not(.grid-pad) td");
+        if (first && window.HppvGridNav) window.HppvGridNav.focusCell(first, { edit: false });
+      }
+    });
+    /* 馬匹 Grid：紀錄移動（↑↓／點選）→ 同步明細，對齊 Windows itemSelectionChanged */
+    document.getElementById("horsesGrid").addEventListener("hppv:rowchange", (e) => {
+      const tr = e.detail && e.detail.tr;
+      const id = (e.detail && e.detail.id) || (tr && tr.dataset.id);
+      if (id) selectHorse(id, tr);
+    });
+    document.getElementById("btnReloadRacecard").addEventListener("click", () => updateRacecardFromWeb());
+    document.getElementById("racecardMeeting").addEventListener("change", () => {
+      const v = document.getElementById("racecardMeeting").value || "";
+      const [d, c] = v.split("|");
+      loadRacecard({date: d, course: c});
+    });
+    document.getElementById("btnReloadResults").addEventListener("click", () => loadResults());
+    document.getElementById("resultsMeeting").addEventListener("change", () => {
+      const v = document.getElementById("resultsMeeting").value || "";
+      const [d, c] = v.split("|");
+      loadResults(d, c);
+    });
+    document.getElementById("btnReloadKings").addEventListener("click", () => loadKings());
+    document.getElementById("kingsMeeting").addEventListener("change", () => loadKings());
+    document.getElementById("anMeeting").addEventListener("change", async () => {
+      await loadAnalysisMeta();
+    });
+    document.querySelectorAll('input[name="anRaceMode"]').forEach((el) => {
+      el.addEventListener("change", anSyncRaceMode);
+    });
+    document.getElementById("btnAnAddCond").addEventListener("click", () => {
+      anAppendCondRow({ enabled: true, kind: "custom", scoring: "" });
+    });
+    const anFieldsEl = document.getElementById("anFieldsText");
+    anFieldsEl.addEventListener("input", anFitFieldsHeight);
+    window.addEventListener("resize", anFitFieldsHeight);
+    document.getElementById("btnAnDelCond").addEventListener("click", () => {
+      const rows = document.querySelectorAll("#anCondGrid tbody tr");
+      if (anCondSelected < 0 || anCondSelected >= rows.length) {
+        alert("請先選取要刪除的條件列。");
+        return;
+      }
+      rows[anCondSelected].remove();
+      anCondSelected = -1;
+    });
+    document.getElementById("btnAnResetCond").addEventListener("click", () => {
+      anRenderConditions((anMeta && anMeta.default_conditions) || []);
+    });
+    document.getElementById("btnAnLoadTpl").addEventListener("click", () => {
+      anLoadSelectedTemplate();
+    });
+    document.getElementById("btnAnSaveTpl").addEventListener("click", async () => {
+      await anSaveAsTemplate();
+    });
+    document.getElementById("btnAnDelTpl").addEventListener("click", async () => {
+      await anDeleteSelectedTemplate();
+    });
+    document.getElementById("btnAnPreview").addEventListener("click", async () => {
+      const data = await anBuildPrompt();
+      if (data) setStatus("已預覽賽馬分析指令");
+    });
+    document.getElementById("btnAnSaveCmd").addEventListener("click", async () => {
+      const built = await anBuildPrompt();
+      if (!built) return;
+      const title = document.getElementById("anTitle").value.trim() || built.title || "賽馬分析";
+      const res = await fetch("/api/app/ai/commands", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ title, prompt: built.prompt }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.ok === false) {
+        alert(data.message || "儲存指令失敗");
+        return;
+      }
+      alert(data.message || `已製成 AI 指令：${title}`);
+      setStatus(data.message || "已製成 AI 指令");
+    });
+    document.getElementById("btnAnFillAi").addEventListener("click", async () => {
+      const built = await anBuildPrompt();
+      if (!built) return;
+      document.getElementById("aiQ").value = built.prompt;
+      openTab("ai");
+      setStatus("已放入 AI 助手");
+    });
+    document.getElementById("btnAnSendAi").addEventListener("click", async () => {
+      const built = await anBuildPrompt();
+      if (!built) return;
+      document.getElementById("aiQ").value = built.prompt;
+      openTab("ai");
+      await sendAi();
+    });
+    document.getElementById("btnPrintPage").addEventListener("click", () => window.print());
+    document.getElementById("btnPrintPreview").addEventListener("click", () => {
+      const active = document.querySelector(".panel.active table.hppv-grid");
+      document.getElementById("printPreview").innerHTML = active ? active.outerHTML : "無 Grid 可預覽";
+      openTab("print");
+    });
+    document.querySelectorAll("[data-print]").forEach((b) => b.addEventListener("click", () => {
+      location.href = "/reports/export?report=" + encodeURIComponent(b.dataset.print);
+    }));
+    /* —— 賽馬分析 —— */
+    let anMeta = null;
+    let anCondSelected = -1;
+    function anEsc(text) {
+      return String(text ?? "")
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+    function anSelectedMeeting() {
+      const sel = document.getElementById("anMeeting");
+      const opt = sel.options[sel.selectedIndex];
+      if (!opt) return null;
+      return { race_date: opt.dataset.date || "", racecourse: opt.dataset.course || "" };
+    }
+    function anParseColumnsText(text) {
+      let raw = String(text || "").replace(/\r/g, "\n").trim();
+      if (!raw) return [];
+      raw = raw.replace(/\s*\n\s*/g, "／");
+      const parts = (raw.includes("／") || raw.includes("/"))
+        ? raw.split(/[／/]+/)
+        : raw.split(/[,，\s]+/);
+      return parts.map((p) => p.trim()).filter(Boolean);
+    }
+    function anSelectedColumns() {
+      return anParseColumnsText(document.getElementById("anFieldsText").value);
+    }
+    function anFormatColumnsText(cols) {
+      const list = (cols || []).map((c) => String(c || "").trim()).filter(Boolean);
+      if (!list.length) return "";
+      if (list.length <= 1) return list[0];
+      const lengths = list.map((c) => c.length + 1);
+      const total = lengths.reduce((a, b) => a + b, 0) - 1;
+      const target = total / 2;
+      let acc = 0;
+      let mid = list.length;
+      for (let i = 0; i < lengths.length; i++) {
+        acc += lengths[i];
+        if (acc >= target) {
+          mid = i + 1;
+          break;
+        }
+      }
+      mid = Math.max(1, Math.min(mid, list.length - 1));
+      return list.slice(0, mid).join("／") + "／\n" + list.slice(mid).join("／");
+    }
+    function anFitFieldsHeight() {
+      const el = document.getElementById("anFieldsText");
+      if (!el) return;
+      el.style.height = "auto";
+      el.style.height = Math.max(el.scrollHeight, 48) + "px";
+    }
+    function anConditionRows() {
+      return Array.from(document.querySelectorAll("#anCondGrid tbody tr")).map((tr) => ({
+        enabled: !!tr.querySelector(".an-en")?.checked,
+        kind: tr.querySelector(".an-kind")?.value || "custom",
+        scoring: (tr.querySelector(".an-scoring")?.value || "").trim(),
+      }));
+    }
+    function anRenderFields(fields, defaults) {
+      const text = Array.isArray(defaults) && defaults.length
+        ? anFormatColumnsText(defaults)
+        : (anMeta && anMeta.default_display_fields_text) || anFormatColumnsText(fields);
+      document.getElementById("anFieldsText").value = text;
+      anFitFieldsHeight();
+      const list = document.getElementById("anSortFieldList");
+      list.innerHTML = (fields || []).map((name) =>
+        `<option value="${anEsc(name)}"></option>`
+      ).join("");
+      const sort = document.getElementById("anSortField");
+      if (!sort.value) sort.value = "合計分數";
+    }
+    function anRenderMeetings(meetings, selected) {
+      const sel = document.getElementById("anMeeting");
+      sel.innerHTML = (meetings || []).map((m) => {
+        const mark = selected && m.race_date === selected.race_date && m.racecourse === selected.racecourse
+          ? " selected" : "";
+        return `<option value="${anEsc(m.race_date)}|${anEsc(m.racecourse)}" data-date="${anEsc(m.race_date)}" data-course="${anEsc(m.racecourse)}"${mark}>${anEsc(m.label || (m.race_date + " " + m.racecourse))}</option>`;
+      }).join("");
+    }
+    function anRenderRaceNos(raceNos) {
+      const sel = document.getElementById("anRaceNo");
+      sel.innerHTML = (raceNos || []).map((n) =>
+        `<option value="${n}">第${n}場</option>`
+      ).join("");
+    }
+    function anSyncRaceMode() {
+      const one = document.getElementById("anRaceOne").checked;
+      document.getElementById("anRaceNo").disabled = !one;
+    }
+    function anAppendCondRow(row) {
+      const kinds = (anMeta && anMeta.condition_types) || [];
+      const defaults = (anMeta && anMeta.default_scoring) || {};
+      const kind = row?.kind || "custom";
+      const scoring = row?.scoring ?? (defaults[kind] || "");
+      const enabled = row?.enabled !== false;
+      const opts = kinds.map((k) =>
+        `<option value="${anEsc(k.id)}" ${k.id === kind ? "selected" : ""}>${anEsc(k.label)}</option>`
+      ).join("");
+      const tr = document.createElement("tr");
+      tr.innerHTML =
+        `<td class="num"><input type="checkbox" class="an-en" ${enabled ? "checked" : ""}></td>` +
+        `<td><select class="an-kind">${opts}</select></td>` +
+        `<td><input type="text" class="an-cell-input an-scoring" value="${anEsc(scoring)}"></td>`;
+      tr.addEventListener("click", (ev) => {
+        if (ev.target.closest("input, select")) return;
+        anCondSelected = Array.from(tr.parentElement.children).indexOf(tr);
+        tr.parentElement.querySelectorAll("tr").forEach((r, i) => {
+          r.classList.toggle("grid-selected", i === anCondSelected);
+        });
+      });
+      tr.querySelector(".an-kind").addEventListener("change", (ev) => {
+        const k = ev.target.value;
+        const scoringEl = tr.querySelector(".an-scoring");
+        const presets = Object.values(defaults);
+        if (!scoringEl.value.trim() || presets.includes(scoringEl.value.trim())) {
+          scoringEl.value = defaults[k] || "";
+        }
+      });
+      document.querySelector("#anCondGrid tbody").appendChild(tr);
+    }
+    function anRenderConditions(rows) {
+      const tb = document.querySelector("#anCondGrid tbody");
+      tb.innerHTML = "";
+      anCondSelected = -1;
+      (rows || []).forEach((r) => anAppendCondRow(r));
+    }
+    function anSuggestTitle(meeting, allRaces, raceNo) {
+      const date = meeting?.race_date || "賽日";
+      if (allRaces) return `賽馬分析 ${date} 各場合計`;
+      return `賽馬分析 ${date} 第${raceNo}場合計`;
+    }
+    function anRenderTemplates(templates, selectId) {
+      const sel = document.getElementById("anTemplate");
+      const keep = selectId != null ? String(selectId) : sel.value;
+      const list = templates || (anMeta && anMeta.templates) || [];
+      sel.innerHTML = `<option value="">（選擇範本）</option>` + list.map((t) =>
+        `<option value="${anEsc(t.id)}">${anEsc(t.name || t.id)}</option>`
+      ).join("");
+      if (keep && Array.from(sel.options).some((o) => o.value === keep)) {
+        sel.value = keep;
+      }
+    }
+    function anFindTemplate(id) {
+      const list = (anMeta && anMeta.templates) || [];
+      return list.find((t) => String(t.id) === String(id)) || null;
+    }
+    function anApplyTemplate(tpl) {
+      if (!tpl) return;
+      if (tpl.columns_text) {
+        document.getElementById("anFieldsText").value = tpl.columns_text;
+      } else if (Array.isArray(tpl.columns) && tpl.columns.length) {
+        document.getElementById("anFieldsText").value = anFormatColumnsText(tpl.columns);
+      }
+      anFitFieldsHeight();
+      if (tpl.sort_field) {
+        document.getElementById("anSortField").value = tpl.sort_field;
+      }
+      if (tpl.sort_ascending) document.getElementById("anSortAsc").checked = true;
+      else document.getElementById("anSortDesc").checked = true;
+      if (tpl.all_races === false) document.getElementById("anRaceOne").checked = true;
+      else document.getElementById("anRaceAll").checked = true;
+      anSyncRaceMode();
+      anRenderConditions(Array.isArray(tpl.conditions) && tpl.conditions.length
+        ? tpl.conditions
+        : ((anMeta && anMeta.default_conditions) || []));
+    }
+    function anLoadSelectedTemplate() {
+      const id = document.getElementById("anTemplate").value;
+      if (!id) {
+        alert("請先選擇要取出的範本。");
+        return;
+      }
+      const tpl = anFindTemplate(id);
+      if (!tpl) {
+        alert("找不到該範本。");
+        return;
+      }
+      anApplyTemplate(tpl);
+      setStatus(`已取出範本：${tpl.name || id}`);
+    }
+    function anTemplatePayload(name, overwrite) {
+      const columnsText = document.getElementById("anFieldsText").value.trim();
+      const columns = anSelectedColumns();
+      if (!columns.length) {
+        alert("請輸入輸出欄位（以／分隔）。");
+        return null;
+      }
+      return {
+        name,
+        overwrite: !!overwrite,
+        columns,
+        columns_text: columnsText || anFormatColumnsText(columns),
+        sort_field: document.getElementById("anSortField").value.trim() || "合計分數",
+        sort_ascending: document.getElementById("anSortAsc").checked,
+        all_races: document.getElementById("anRaceAll").checked,
+        conditions: anConditionRows(),
+      };
+    }
+    async function anFetchJson(url, options) {
+      const res = await fetch(url, options);
+      const text = await res.text();
+      let data = null;
+      try { data = text ? JSON.parse(text) : {}; }
+      catch (_) {
+        throw new Error(res.status === 404
+          ? "伺服器尚未更新範本功能，請重新啟動 WEB 後再試（Ctrl+F5）。"
+          : (`伺服器回應異常（HTTP ${res.status}）`));
+      }
+      return { res, data };
+    }
+    async function anSaveAsTemplate() {
+      const cur = anFindTemplate(document.getElementById("anTemplate").value);
+      const name = prompt("範本名稱：", (cur && cur.name) || "賽馬分析範本");
+      if (name == null) return;
+      const trimmed = String(name).trim();
+      if (!trimmed) {
+        alert("請輸入範本名稱。");
+        return;
+      }
+      let body = anTemplatePayload(trimmed, false);
+      if (!body) return;
+      try {
+        let { res, data } = await anFetchJson("/api/app/analysis/templates", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify(body),
+        });
+        if (res.status === 409 && data && data.exists) {
+          if (!confirm(data.message || `範本「${trimmed}」已存在，是否覆寫？`)) return;
+          body = anTemplatePayload(trimmed, true);
+          if (!body) return;
+          if (data.id) body.id = data.id;
+          ({ res, data } = await anFetchJson("/api/app/analysis/templates", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(body),
+          }));
+        }
+        if (!res.ok || !data || data.ok === false) {
+          alert((data && data.message) || "儲存範本失敗");
+          return;
+        }
+        if (anMeta) anMeta.templates = data.templates || [];
+        anRenderTemplates(data.templates || [], data.template && data.template.id);
+        alert(data.message || `已儲存範本：${trimmed}`);
+        setStatus(data.message || `已儲存範本：${trimmed}`);
+      } catch (err) {
+        alert(err.message || String(err));
+      }
+    }
+    async function anDeleteSelectedTemplate() {
+      const id = document.getElementById("anTemplate").value;
+      if (!id) {
+        alert("請先選擇要刪除的範本。");
+        return;
+      }
+      const tpl = anFindTemplate(id);
+      const label = (tpl && tpl.name) || id;
+      if (!confirm(`確定刪除範本「${label}」？`)) return;
+      try {
+        const { res, data } = await anFetchJson(
+          "/api/app/analysis/templates/" + encodeURIComponent(id),
+          { method: "DELETE" }
+        );
+        if (!res.ok || !data || data.ok === false) {
+          alert((data && data.message) || "刪除失敗");
+          return;
+        }
+        if (anMeta) anMeta.templates = data.templates || [];
+        anRenderTemplates(data.templates || [], "");
+        alert(data.message || `已刪除範本：${label}`);
+        setStatus(data.message || `已刪除範本：${label}`);
+      } catch (err) {
+        alert(err.message || String(err));
+      }
+    }
+    function anSelectionPayload() {
+      const meeting = anSelectedMeeting();
+      if (!meeting || !meeting.race_date) {
+        alert("請先選擇賽事日期（需已下載排位）。");
+        return null;
+      }
+      const allRaces = document.getElementById("anRaceAll").checked;
+      let raceNo = null;
+      if (!allRaces) {
+        const v = document.getElementById("anRaceNo").value;
+        if (!v) {
+          alert("請選擇場次，或改選「全部場次」。");
+          return null;
+        }
+        raceNo = Number(v);
+      }
+      const columnsText = document.getElementById("anFieldsText").value.trim();
+      const columns = anSelectedColumns();
+      if (!columns.length) {
+        alert("請輸入輸出欄位（以／分隔）。");
+        return null;
+      }
+      return {
+        race_date: meeting.race_date,
+        racecourse: meeting.racecourse,
+        all_races: allRaces,
+        race_no: raceNo,
+        columns,
+        columns_text: columnsText || anFormatColumnsText(columns),
+        sort_field: document.getElementById("anSortField").value.trim() || "合計分數",
+        sort_ascending: document.getElementById("anSortAsc").checked,
+        conditions: anConditionRows(),
+        title: document.getElementById("anTitle").value.trim(),
+        save_prefs: true,
+      };
+    }
+    async function anBuildPrompt() {
+      const body = anSelectionPayload();
+      if (!body) return null;
+      const res = await fetch("/api/app/analysis/build", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok || data.ok === false) {
+        alert(data.message || "組成指令失敗");
+        return null;
+      }
+      document.getElementById("anPreview").value = data.prompt || "";
+      if (data.title) document.getElementById("anTitle").value = data.title;
+      return data;
+    }
+    async function loadAnalysisMeta() {
+      const meeting = anSelectedMeeting();
+      const qs = meeting && meeting.race_date
+        ? `?date=${encodeURIComponent(meeting.race_date)}&course=${encodeURIComponent(meeting.racecourse)}`
+        : "";
+      const res = await fetch("/api/app/analysis/meta" + qs);
+      const data = await res.json();
+      if (!res.ok || data.ok === false) {
+        setStatus(data.message || "讀取賽馬分析失敗");
+        return;
+      }
+      const keepTpl = document.getElementById("anTemplate").value;
+      const hadMeeting = !!(meeting && meeting.race_date);
+      anMeta = data;
+      anRenderTemplates(data.templates || [], keepTpl);
+      anRenderMeetings(data.meetings || [], data.selected || null);
+      anRenderRaceNos(data.race_nos || []);
+      // 僅首次／無賽日時套用 prefs；切換賽日只更新場次清單，避免蓋掉編輯中的範本內容
+      if (!hadMeeting) {
+        const prefs = data.prefs || {};
+        const fields = data.display_fields || [];
+        const defFields = prefs.columns_text
+          ? anParseColumnsText(prefs.columns_text)
+          : (Array.isArray(prefs.columns) && prefs.columns.length
+            ? prefs.columns
+            : (data.default_display_fields || fields));
+        anRenderFields(fields, defFields);
+        if (prefs.columns_text) {
+          document.getElementById("anFieldsText").value = prefs.columns_text;
+        } else if (Array.isArray(prefs.columns) && prefs.columns.length) {
+          document.getElementById("anFieldsText").value = anFormatColumnsText(prefs.columns);
+        }
+        anFitFieldsHeight();
+        if (prefs.sort_field) {
+          document.getElementById("anSortField").value = prefs.sort_field;
+        }
+        if (prefs.sort_ascending) document.getElementById("anSortAsc").checked = true;
+        else document.getElementById("anSortDesc").checked = true;
+        if (prefs.all_races === false) document.getElementById("anRaceOne").checked = true;
+        else document.getElementById("anRaceAll").checked = true;
+        anSyncRaceMode();
+        const conds = Array.isArray(prefs.conditions) && prefs.conditions.length
+          ? prefs.conditions
+          : (data.default_conditions || []);
+        anRenderConditions(conds);
+      } else {
+        anSyncRaceMode();
+      }
+      const m = anSelectedMeeting();
+      document.getElementById("anTitle").value = anSuggestTitle(
+        m, document.getElementById("anRaceAll").checked, document.getElementById("anRaceNo").value
+      );
+      setStatus(`賽馬分析：${(data.meetings || []).length} 個賽日`);
+    }
+
+    /* —— AI 助手（版面／操作對齊 Windows AiAssistantPanel） —— */
+    let aiHistory = [];
+    let aiHistIndex = 0;
+    let aiDraft = "";
+    let aiBusy = false;
+    let aiCmdRows = [];
+    let aiCmdBrowseIndex = -1;
+    let aiCmdDraft = "";
+
+    function aiEscape(s) {
+      return String(s || "")
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;").replace(/\n/g, "<br>");
+    }
+    function aiAppend(role, content) {
+      const who = role === "user" ? "你" : "AI";
+      const box = document.getElementById("aiChat");
+      const p = document.createElement("p");
+      p.innerHTML = `<b>${who}</b><br>${aiEscape(content)}`;
+      box.appendChild(p);
+      box.scrollTop = box.scrollHeight;
+    }
+    function aiShowTable(columns, rows) {
+      const cols = columns || [];
+      const data = rows || [];
+      document.getElementById("aiTableLabel").textContent =
+        data.length ? `報表／列表（${data.length} 列 × ${cols.length} 欄）` : "報表／列表";
+      document.querySelector("#aiGrid thead tr").innerHTML =
+        cols.map((c) => `<th>${c}</th>`).join("");
+      document.querySelector("#aiGrid tbody").innerHTML = data.map((row) =>
+        `<tr>${(row || []).map((c) => `<td>${c ?? ""}</td>`).join("")}</tr>`
+      ).join("");
+      if (window.HppvGridNav) {
+        window.HppvGridNav.bind(document.getElementById("aiGrid"), { editable: false, focus: false });
+      }
+    }
+    async function loadAiChat() {
+      const res = await fetch("/api/app/ai/chat");
+      const data = await res.json();
+      const box = document.getElementById("aiChat");
+      box.innerHTML = "";
+      const rows = data.rows || [];
+      if (!rows.length) {
+        aiAppend("assistant", data.welcome || "可以直接問賽馬資料。");
+      } else {
+        rows.forEach((r) => aiAppend(r.role, r.content));
+      }
+      aiHistory = data.prompts || [];
+      aiHistIndex = aiHistory.length;
+      aiDraft = "";
+    }
+    async function sendAi() {
+      if (aiBusy) return;
+      const input = document.getElementById("aiQ");
+      const q = input.value.trim();
+      if (!q) return;
+      aiBusy = true;
+      document.getElementById("aiStatus").textContent = "處理中…";
+      document.getElementById("btnAiSend").disabled = true;
+      aiAppend("user", q);
+      try {
+        const res = await fetch("/api/app/ai", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({question: q}),
+        });
+        const data = await res.json();
+        aiAppend("assistant", data.text || "");
+        aiShowTable(data.columns, data.rows);
+        input.value = "";
+        aiHistory = (await (await fetch("/api/app/ai/chat")).json()).prompts || [];
+        aiHistIndex = aiHistory.length;
+        aiDraft = "";
+        if (data.action === "open_download") openTab("download");
+        if (data.action === "open_racecard") openTab("racecard");
+        if (data.action === "open_horses") openTab("horses");
+        document.getElementById("aiStatus").textContent = data.ok === false ? "失敗" : "完成";
+      } catch (err) {
+        aiAppend("assistant", "錯誤：" + err);
+        document.getElementById("aiStatus").textContent = "錯誤";
+      } finally {
+        aiBusy = false;
+        document.getElementById("btnAiSend").disabled = false;
+        input.focus();
+      }
+    }
+    function aiHistoryOlder() {
+      const input = document.getElementById("aiQ");
+      if (!aiHistory.length) return;
+      if (aiHistIndex === aiHistory.length) aiDraft = input.value;
+      if (aiHistIndex > 0) {
+        aiHistIndex -= 1;
+        input.value = aiHistory[aiHistIndex] || "";
+      }
+    }
+    function aiHistoryNewer() {
+      const input = document.getElementById("aiQ");
+      if (aiHistIndex < aiHistory.length - 1) {
+        aiHistIndex += 1;
+        input.value = aiHistory[aiHistIndex] || "";
+      } else {
+        aiHistIndex = aiHistory.length;
+        input.value = aiDraft;
+      }
+    }
+    document.getElementById("btnAiSend").addEventListener("click", sendAi);
+    document.getElementById("aiQ").addEventListener("keydown", (e) => {
+      const ta = e.target;
+      const val = ta.value;
+      const start = ta.selectionStart || 0;
+      const before = val.slice(0, start);
+      const atFirst = !before.includes("\n");
+      const after = val.slice(start);
+      const atLast = !after.includes("\n");
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        sendAi();
+      } else if (e.key === "ArrowUp" && atFirst) {
+        e.preventDefault();
+        aiCmdPrev();
+      } else if (e.key === "ArrowDown" && atLast) {
+        e.preventDefault();
+        aiCmdNext();
+      }
+    });
+    let aiCmdShown = [];
+    let aiCmdSelectedId = null;
+    function renderAiCmdGrid() {
+      const filt = document.getElementById("aiCmdFilter");
+      const q = (filt.value || "").trim().toLowerCase();
+      aiCmdShown = aiCmdRows.filter((c) => {
+        if (!q) return true;
+        return ((c.title || "") + " " + (c.prompt || "")).toLowerCase().includes(q);
+      });
+      const tbody = document.querySelector("#aiCmdGrid tbody");
+      tbody.innerHTML = aiCmdShown.map((c) =>
+        `<tr data-id="${c.id}">` +
+        `<td class="num">${c.id}</td>` +
+        `<td>${aiEscapeText(c.title || "")}</td>` +
+        `<td>${aiEscapeText(c.prompt || "")}</td></tr>`
+      ).join("");
+      tbody.querySelectorAll("tr").forEach((tr) => {
+        tr.addEventListener("click", () => {
+          tbody.querySelectorAll("tr").forEach((r) => r.classList.remove("grid-selected"));
+          tr.classList.add("grid-selected");
+          aiCmdSelectedId = Number(tr.dataset.id);
+        });
+        tr.addEventListener("dblclick", () => {
+          tbody.querySelectorAll("tr").forEach((r) => r.classList.remove("grid-selected"));
+          tr.classList.add("grid-selected");
+          aiCmdSelectedId = Number(tr.dataset.id);
+          document.getElementById("aiCmdDialog").close("ok");
+        });
+      });
+      if (aiCmdSelectedId != null) {
+        const keep = tbody.querySelector(`tr[data-id="${aiCmdSelectedId}"]`);
+        if (keep) keep.classList.add("grid-selected");
+        else aiCmdSelectedId = null;
+      }
+    }
+    function aiEscapeText(s) {
+      return String(s || "")
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    }
+    function aiSelectedPrompt() {
+      const tr = document.querySelector("#aiCmdGrid tbody tr.grid-selected");
+      if (!tr) return "";
+      const row = aiCmdShown.find((c) => String(c.id) === String(tr.dataset.id));
+      return row ? (row.prompt || "") : "";
+    }
+    async function loadAiCommands(force) {
+      if (!force && aiCmdRows.length) return aiCmdRows;
+      const res = await fetch("/api/app/ai/commands");
+      const data = await res.json();
+      aiCmdRows = data.commands || [];
+      if (aiCmdBrowseIndex >= aiCmdRows.length) aiCmdBrowseIndex = aiCmdRows.length;
+      return aiCmdRows;
+    }
+    function applyAiCommandAt(index) {
+      if (!aiCmdRows.length || index < 0 || index >= aiCmdRows.length) return;
+      const c = aiCmdRows[index];
+      document.getElementById("aiQ").value = c.prompt || "";
+      document.getElementById("aiQ").focus();
+      document.getElementById("aiStatus").textContent =
+        `指令 ${index + 1}/${aiCmdRows.length}` + (c.title ? `：${c.title}` : "");
+    }
+    async function aiCmdPrev() {
+      await loadAiCommands(false);
+      if (!aiCmdRows.length) {
+        document.getElementById("aiStatus").textContent = "尚無已儲存指令";
+        return;
+      }
+      const input = document.getElementById("aiQ");
+      if (aiCmdBrowseIndex < 0 || aiCmdBrowseIndex >= aiCmdRows.length) {
+        aiCmdDraft = input.value;
+        aiCmdBrowseIndex = aiCmdRows.length;
+      }
+      if (aiCmdBrowseIndex <= 0) {
+        document.getElementById("aiStatus").textContent = `指令 1/${aiCmdRows.length}（已是第一筆）`;
+        return;
+      }
+      aiCmdBrowseIndex -= 1;
+      applyAiCommandAt(aiCmdBrowseIndex);
+    }
+    async function aiCmdNext() {
+      await loadAiCommands(false);
+      if (!aiCmdRows.length) {
+        document.getElementById("aiStatus").textContent = "尚無已儲存指令";
+        return;
+      }
+      if (aiCmdBrowseIndex < 0) {
+        aiCmdBrowseIndex = -1;
+      }
+      if (aiCmdBrowseIndex >= aiCmdRows.length - 1) {
+        aiCmdBrowseIndex = aiCmdRows.length;
+        document.getElementById("aiQ").value = aiCmdDraft;
+        document.getElementById("aiQ").focus();
+        document.getElementById("aiStatus").textContent = "已回到目前輸入";
+        return;
+      }
+      aiCmdBrowseIndex += 1;
+      applyAiCommandAt(aiCmdBrowseIndex);
+    }
+    document.getElementById("btnAiCmdPrev").addEventListener("click", () => aiCmdPrev());
+    document.getElementById("btnAiCmdNext").addEventListener("click", () => aiCmdNext());
+    document.getElementById("btnAiCmd").addEventListener("click", async () => {
+      await loadAiCommands(true);
+      aiCmdSelectedId = null;
+      const filt = document.getElementById("aiCmdFilter");
+      filt.value = "";
+      filt.oninput = renderAiCmdGrid;
+      renderAiCmdGrid();
+      document.getElementById("aiCmdDialog").showModal();
+    });
+    document.getElementById("btnAiCmdDelete").addEventListener("click", async () => {
+      const tr = document.querySelector("#aiCmdGrid tbody tr.grid-selected");
+      if (!tr) {
+        alert("請先選取一筆指令。");
+        return;
+      }
+      const id = Number(tr.dataset.id);
+      if (!confirm("刪除此指令？")) return;
+      const res = await fetch("/api/app/ai/commands/" + id, { method: "DELETE" });
+      const data = await res.json();
+      if (!data.ok) {
+        alert(data.message || "刪除失敗");
+        return;
+      }
+      aiCmdRows = aiCmdRows.filter((c) => c.id !== id);
+      aiCmdSelectedId = null;
+      renderAiCmdGrid();
+      document.getElementById("aiStatus").textContent = data.message || "已刪除";
+    });
+    document.getElementById("aiCmdOk").addEventListener("click", (ev) => {
+      if (!document.querySelector("#aiCmdGrid tbody tr.grid-selected")) {
+        ev.preventDefault();
+        alert("請先選取一筆指令。");
+      }
+    });
+    document.getElementById("aiCmdDialog").addEventListener("close", () => {
+      if (document.getElementById("aiCmdDialog").returnValue !== "ok") return;
+      const prompt = aiSelectedPrompt();
+      if (!prompt) {
+        alert("請先選取一筆指令。");
+        return;
+      }
+      document.getElementById("aiQ").value = prompt;
+      document.getElementById("aiQ").focus();
+      const idx = aiCmdRows.findIndex((c) => String(c.id) === String(aiCmdSelectedId));
+      if (idx >= 0) aiCmdBrowseIndex = idx;
+      document.getElementById("aiStatus").textContent = "已放入 AI_COMMAND.CMD_PROMPT";
+    });
+    document.getElementById("btnAiSave").addEventListener("click", async () => {
+      const prompt = document.getElementById("aiQ").value.trim();
+      if (!prompt) { alert("請先在對話框輸入要儲存的指令。"); return; }
+      const title = window.prompt("指令標題：", prompt.slice(0, 24));
+      if (title === null) return;
+      const res = await fetch("/api/app/ai/commands", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({title, prompt}),
+      });
+      const data = await res.json();
+      alert(data.message || (data.ok ? "已儲存" : "儲存失敗"));
+      document.getElementById("aiStatus").textContent = data.message || "";
+      if (data.ok) {
+        await loadAiCommands(true);
+        if (data.id != null) {
+          const idx = aiCmdRows.findIndex((c) => c.id === data.id);
+          if (idx >= 0) aiCmdBrowseIndex = idx;
+        }
+      }
+    });
+    document.getElementById("btnAiClear").addEventListener("click", async () => {
+      if (!confirm("清除畫面上的對話紀錄？已儲存的指令和文件會保留。")) return;
+      await fetch("/api/app/ai/chat", { method: "DELETE" });
+      await loadAiChat();
+      aiShowTable([], []);
+      document.getElementById("aiStatus").textContent = "已清除對話";
+    });
+    document.getElementById("btnAiExport").addEventListener("click", () => {
+      const cols = Array.from(document.querySelectorAll("#aiGrid thead th")).map((th) => th.textContent);
+      const lines = [cols.join("\t")];
+      document.querySelectorAll("#aiGrid tbody tr").forEach((tr) => {
+        lines.push(Array.from(tr.querySelectorAll("td")).map((td) => td.textContent).join("\t"));
+      });
+      if (lines.length <= 1) { alert("沒有可匯出的報表。"); return; }
+      const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "ai_report.csv";
+      a.click();
+      URL.revokeObjectURL(a.href);
+      document.getElementById("aiStatus").textContent = "已匯出報表";
+    });
+    document.getElementById("btnAiUpload").addEventListener("click", () => {
+      alert("上傳文件：請於 Windows 介面的 AI 助手按「上傳文件」。");
+    });
+    document.getElementById("btnAiSettings").addEventListener("click", () => {
+      alert("模型設定：請於 Windows 介面的 AI 助手按「模型設定」。");
+    });
+
+    let dlKinds = {};
+    let dlHints = {};
+    let dlHorsePpKind = "horse_pp";
+    let dlSources = [];
+    let dlSelected = -1;
+
+    function dlEsc(text) {
+      return String(text ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    }
+    function dlEscAttr(text) {
+      return dlEsc(text).replace(/"/g, "&quot;");
+    }
+    function dlMode() {
+      const picked = document.querySelector('input[name="dlMode"]:checked');
+      return picked ? picked.value : "once";
+    }
+    function syncDlModeEnabled() {
+      const mode = dlMode();
+      document.getElementById("dlTime").disabled = mode !== "schedule";
+      document.getElementById("dlMinutes").disabled = mode !== "interval";
+    }
+    function syncDlKindHint() {
+      const kind = document.getElementById("dlKind").value;
+      document.getElementById("dlKindHint").textContent = dlHints[kind] || "";
+    }
+    function renderDlKindOptions() {
+      const sel = document.getElementById("dlKind");
+      const current = sel.value;
+      sel.innerHTML = Object.keys(dlKinds).map((k) =>
+        `<option value="${dlEsc(k)}">${dlEsc(dlKinds[k] || k)}</option>`
+      ).join("");
+      if (current && dlKinds[current]) sel.value = current;
+      syncDlKindHint();
+    }
+    let dlCellSaving = false;
+    function dlCellValue(el) {
+      if (!el) return "";
+      if (typeof el.value === "string") return el.value.trim();
+      return (el.textContent || "").trim();
+    }
+    function dlSetCellValue(el, val) {
+      if (!el) return;
+      if (typeof el.value === "string") el.value = val;
+      else el.textContent = val;
+    }
+    async function commitDlSitesCell(el, field) {
+      if (!el || dlCellSaving) return false;
+      const i = Number(el.dataset.i);
+      const src = dlSources[i];
+      if (!src) return false;
+      const val = dlCellValue(el);
+      let changed = false;
+      if (field === "name") {
+        const name = val || (dlKinds[src.kind] || src.kind);
+        if (name === src.name) {
+          dlSetCellValue(el, src.name);
+          return true;
+        }
+        src.name = name;
+        dlSetCellValue(el, src.name);
+        changed = true;
+      } else {
+        if (!(val.startsWith("http://") || val.startsWith("https://"))) {
+          dlSetCellValue(el, src.url);
+          alert("網址請以 http:// 或 https:// 開頭。");
+          return false;
+        }
+        if (src.kind === dlHorsePpKind && !val.includes("{horse_id}")) {
+          dlSetCellValue(el, src.url);
+          alert("往績網站模板必須包含 {horse_id}。");
+          return false;
+        }
+        if (dlSources.some((s, j) => j !== i && s.kind === src.kind && s.url === val)) {
+          dlSetCellValue(el, src.url);
+          alert("此網站已存在於清單中。");
+          return false;
+        }
+        if (val === src.url) {
+          dlSetCellValue(el, src.url);
+          return true;
+        }
+        src.url = val;
+        dlSetCellValue(el, src.url);
+        changed = true;
+      }
+      if (!changed) return true;
+      dlCellSaving = true;
+      try {
+        await persistDlSources();
+        if (i === dlSelected) fillDlEditFromSelected();
+        setStatus("已更新網站設定");
+        return true;
+      } catch (err) {
+        alert(String(err));
+        await loadDownloadSources(false);
+        return false;
+      } finally {
+        dlCellSaving = false;
+      }
+    }
+    async function flushDlSitesGridEdits() {
+      const cells = [
+        ...document.querySelectorAll("#dlSitesGrid .dl-name"),
+        ...document.querySelectorAll("#dlSitesGrid .dl-url"),
+      ];
+      for (const el of cells) {
+        const field = el.classList.contains("dl-url") ? "url" : "name";
+        await commitDlSitesCell(el, field);
+      }
+    }
+    function renderDlSitesGrid() {
+      const table = document.getElementById("dlSitesGrid");
+      if (table) {
+        table.dataset.gridNavBound = "0";
+        table.setAttribute("data-no-grid-nav", "");
+      }
+      const tb = document.querySelector("#dlSitesGrid tbody");
+      tb.innerHTML = dlSources.map((s, i) => {
+        const label = dlKinds[s.kind] || s.kind;
+        return `<tr data-i="${i}" class="${i === dlSelected ? "grid-selected" : ""}">
+          <td class="num"><input type="checkbox" class="dl-en" data-i="${i}" ${s.enabled ? "checked" : ""}></td>
+          <td>${dlEsc(label)}</td>
+          <td><input type="text" class="dl-cell-input dl-name" data-i="${i}" value="${dlEscAttr(s.name)}" spellcheck="false"></td>
+          <td><input type="text" class="dl-cell-input dl-url" data-i="${i}" value="${dlEscAttr(s.url)}" spellcheck="false"></td>
+        </tr>`;
+      }).join("");
+      tb.querySelectorAll("tr").forEach((tr) => {
+        tr.addEventListener("click", (ev) => {
+          if (ev.target.closest("input")) return;
+          const next = Number(tr.dataset.i);
+          if (next === dlSelected) return;
+          dlSelected = next;
+          fillDlEditFromSelected();
+          tb.querySelectorAll("tr").forEach((row) => {
+            row.classList.toggle("grid-selected", Number(row.dataset.i) === dlSelected);
+          });
+        });
+      });
+      tb.querySelectorAll(".dl-en").forEach((chk) => {
+        chk.addEventListener("change", async () => {
+          const i = Number(chk.dataset.i);
+          const src = dlSources[i];
+          if (!src) return;
+          if (src.enabled && !chk.checked) {
+            const enabledSame = dlSources.filter((s) => s.kind === src.kind && s.enabled);
+            if (enabledSame.length <= 1) {
+              chk.checked = true;
+              alert(`「${dlKinds[src.kind] || src.kind}」至少保留一個啟用中的網站。`);
+              return;
+            }
+          }
+          src.enabled = chk.checked;
+          try {
+            await persistDlSources();
+            setStatus("已更新網站設定");
+          } catch (err) {
+            src.enabled = !src.enabled;
+            chk.checked = src.enabled;
+            alert(String(err));
+          }
+        });
+      });
+      const bindEditable = (el, field) => {
+        el.addEventListener("focus", () => {
+          dlSelected = Number(el.dataset.i);
+          tb.querySelectorAll("tr").forEach((row) => {
+            row.classList.toggle("grid-selected", Number(row.dataset.i) === dlSelected);
+          });
+          fillDlEditFromSelected();
+        });
+        el.addEventListener("keydown", (ev) => {
+          if (ev.key === "Enter") {
+            ev.preventDefault();
+            ev.stopPropagation();
+            el.blur();
+          } else if (ev.key === "Escape") {
+            ev.preventDefault();
+            const src = dlSources[Number(el.dataset.i)];
+            if (src) dlSetCellValue(el, field === "name" ? src.name : src.url);
+            el.blur();
+          }
+        });
+        el.addEventListener("change", () => { commitDlSitesCell(el, field); });
+        el.addEventListener("blur", () => { commitDlSitesCell(el, field); });
+      };
+      tb.querySelectorAll(".dl-name").forEach((el) => bindEditable(el, "name"));
+      tb.querySelectorAll(".dl-url").forEach((el) => bindEditable(el, "url"));
+      applyDlSitesColWidths();
+      bindDlSitesColResize();
+    }
+    function fillDlEditFromSelected() {
+      if (dlSelected < 0 || dlSelected >= dlSources.length) return;
+      const src = dlSources[dlSelected];
+      const kindSel = document.getElementById("dlKind");
+      if (src.kind && dlKinds[src.kind]) kindSel.value = src.kind;
+      document.getElementById("dlName").value = src.name || "";
+      document.getElementById("dlUrl").value = src.url || "";
+      syncDlKindHint();
+    }
+    let dlSitesColWidths = [56, 110, 280, 720];
+    function dlMeasureTextPx(text) {
+      const canvas = dlMeasureTextPx._c || (dlMeasureTextPx._c = document.createElement("canvas"));
+      const ctx = canvas.getContext("2d");
+      ctx.font = "10pt \"Segoe UI\", \"Microsoft JhengHei\", \"Noto Sans TC\", sans-serif";
+      return Math.ceil(ctx.measureText(String(text || "")).width);
+    }
+    function refreshDlSitesColWidthsFromData() {
+      let kindW = dlMeasureTextPx("類別") + 28;
+      let nameW = dlMeasureTextPx("名稱") + 28;
+      let urlW = dlMeasureTextPx("網址") + 28;
+      dlSources.forEach((s) => {
+        kindW = Math.max(kindW, dlMeasureTextPx(dlKinds[s.kind] || s.kind) + 28);
+        nameW = Math.max(nameW, dlMeasureTextPx(s.name) + 28);
+        urlW = Math.max(urlW, dlMeasureTextPx(s.url) + 28);
+      });
+      dlSitesColWidths = [
+        56,
+        Math.min(Math.max(kindW, 88), 200),
+        Math.min(Math.max(nameW, 160), 560),
+        Math.min(Math.max(urlW, 560), 1600),
+      ];
+    }
+    function applyDlSitesColWidths() {
+      const cols = document.querySelectorAll("#dlSitesGrid colgroup col");
+      cols.forEach((col, i) => {
+        const w = dlSitesColWidths[i] || 80;
+        col.style.width = `${w}px`;
+      });
+      const table = document.getElementById("dlSitesGrid");
+      if (table) {
+        const total = dlSitesColWidths.reduce((a, b) => a + b, 0);
+        table.style.width = `${total}px`;
+        table.style.minWidth = `${total}px`;
+      }
+    }
+    function bindDlSitesColResize() {
+      const table = document.getElementById("dlSitesGrid");
+      if (!table) return;
+      const ths = table.querySelectorAll("thead th");
+      ths.forEach((th, colIdx) => {
+        if (th.querySelector(".col-resizer")) return;
+        const grip = document.createElement("span");
+        grip.className = "col-resizer";
+        grip.title = "拖曳調整欄寬";
+        th.appendChild(grip);
+        grip.addEventListener("mousedown", (ev) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+          const startX = ev.clientX;
+          const startW = dlSitesColWidths[colIdx] || th.offsetWidth;
+          const onMove = (e) => {
+            const next = Math.max(40, startW + (e.clientX - startX));
+            dlSitesColWidths[colIdx] = next;
+            applyDlSitesColWidths();
+          };
+          const onUp = () => {
+            document.removeEventListener("mousemove", onMove);
+            document.removeEventListener("mouseup", onUp);
+            document.body.style.cursor = "";
+            document.body.style.userSelect = "";
+          };
+          document.body.style.cursor = "col-resize";
+          document.body.style.userSelect = "none";
+          document.addEventListener("mousemove", onMove);
+          document.addEventListener("mouseup", onUp);
+        });
+      });
+    }
+    function bindDlSitesDialogResize() {
+      const dlg = document.getElementById("dlSitesDialog");
+      const handle = document.getElementById("dlSitesResize");
+      if (!dlg || !handle || handle.dataset.bound === "1") return;
+      handle.dataset.bound = "1";
+      handle.addEventListener("mousedown", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const startX = ev.clientX;
+        const startY = ev.clientY;
+        const startW = dlg.offsetWidth;
+        const startH = dlg.offsetHeight;
+        const onMove = (e) => {
+          const maxW = Math.floor(window.innerWidth * 0.98);
+          const maxH = Math.floor(window.innerHeight * 0.96);
+          const w = Math.min(maxW, Math.max(640, startW + (e.clientX - startX)));
+          const h = Math.min(maxH, Math.max(360, startH + (e.clientY - startY)));
+          dlg.style.width = `${w}px`;
+          dlg.style.height = `${h}px`;
+        };
+        const onUp = () => {
+          document.removeEventListener("mousemove", onMove);
+          document.removeEventListener("mouseup", onUp);
+          document.body.style.cursor = "";
+          document.body.style.userSelect = "";
+        };
+        document.body.style.cursor = "nwse-resize";
+        document.body.style.userSelect = "none";
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+      });
+    }
+    function sizeDlSitesDialog() {
+      const dlg = document.getElementById("dlSitesDialog");
+      const grid = document.getElementById("dlSitesGrid");
+      if (!dlg || !grid) return;
+      refreshDlSitesColWidthsFromData();
+      applyDlSitesColWidths();
+      const tw = Math.max(grid.scrollWidth, dlSitesColWidths.reduce((a, b) => a + b, 0));
+      const rowCount = Math.max(dlSources.length, 1);
+      const th = Math.max(grid.scrollHeight, rowCount * 25 + 40);
+      const chrome = 300;
+      const pad = 64;
+      const maxW = Math.floor(window.innerWidth * 0.98);
+      const maxH = Math.floor(window.innerHeight * 0.92);
+      const w = Math.min(Math.max(tw + pad, 880), maxW);
+      const h = Math.min(Math.max(th + chrome, 420), maxH);
+      dlg.style.width = `${w}px`;
+      dlg.style.height = `${h}px`;
+    }
+    function openDlSitesDialog() {
+      const dlg = document.getElementById("dlSitesDialog");
+      refreshDlSitesColWidthsFromData();
+      renderDlKindOptions();
+      renderDlSitesGrid();
+      fillDlEditFromSelected();
+      bindDlSitesDialogResize();
+      if (typeof dlg.showModal === "function") dlg.showModal();
+      else dlg.setAttribute("open", "open");
+      requestAnimationFrame(() => {
+        sizeDlSitesDialog();
+        bindDlSitesColResize();
+        applyDlSitesColWidths();
+      });
+    }
+    async function closeDlSitesDialog() {
+      await flushDlSitesGridEdits();
+      const dlg = document.getElementById("dlSitesDialog");
+      if (dlg && typeof dlg.close === "function") dlg.close();
+      else if (dlg) dlg.removeAttribute("open");
+    }
+    function applyDlSettings(settings) {
+      const s = settings || {};
+      const mode = s.mode || "once";
+      const radio = document.querySelector(`input[name="dlMode"][value="${mode}"]`);
+      if (radio) radio.checked = true;
+      if (s.time) document.getElementById("dlTime").value = String(s.time).slice(0, 5);
+      if (s.minutes) document.getElementById("dlMinutes").value = String(s.minutes);
+      document.getElementById("dlHorses").checked = !!s.horses;
+      document.getElementById("dlRacecard").checked = !!s.racecard;
+      document.getElementById("dlOdds").checked = !!s.odds;
+      document.getElementById("dlResults").checked = !!s.results;
+      document.getElementById("dlJockeyKing").checked = !!s.jockey_king;
+      document.getElementById("dlTrainerKing").checked = !!s.trainer_king;
+      syncDlModeEnabled();
+    }
+    async function loadDownloadSources(applySettings = true) {
+      const res = await fetch("/api/app/download_sources");
+      const data = await res.json();
+      dlKinds = data.kinds || {};
+      dlHints = data.hints || {};
+      dlHorsePpKind = data.horse_pp_kind || "horse_pp";
+      dlSources = data.sources || [];
+      if (dlSelected >= dlSources.length) dlSelected = dlSources.length - 1;
+      renderDlKindOptions();
+      if (document.getElementById("dlSitesDialog").open) renderDlSitesGrid();
+      if (applySettings) applyDlSettings(data.settings);
+      setStatus(`下載來源 ${dlSources.length} 筆`);
+    }
+    async function persistDlSources() {
+      const res = await fetch("/api/app/download_sources", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({sources: dlSources}),
+      });
+      const data = await res.json();
+      if (!res.ok || data.ok === false) throw new Error(data.message || "儲存來源失敗");
+      if (Array.isArray(data.sources) && data.sources.length) {
+        dlSources = data.sources;
+      }
+      return data;
+    }
+    function dlSelection() {
+      return {
+        mode: dlMode(),
+        horses: document.getElementById("dlHorses").checked,
+        racecard: document.getElementById("dlRacecard").checked,
+        odds: document.getElementById("dlOdds").checked,
+        results: document.getElementById("dlResults").checked,
+        jockey_king: document.getElementById("dlJockeyKing").checked,
+        trainer_king: document.getElementById("dlTrainerKing").checked,
+        time: document.getElementById("dlTime").value || "23:00",
+        minutes: Number(document.getElementById("dlMinutes").value || 5),
+      };
+    }
+    async function saveDlSettings() {
+      const body = dlSelection();
+      if (!/^\d{2}:\d{2}$/.test(body.time)) {
+        alert("時間請用 24 小時制 HH:mm，例如 23:00。");
+        return null;
+      }
+      const hh = Number(body.time.slice(0, 2));
+      const mm = Number(body.time.slice(3, 5));
+      if (hh > 23 || mm > 59) {
+        alert("時間請用 24 小時制 HH:mm，例如 23:00。");
+        return null;
+      }
+      if (!body.horses && !body.racecard && !body.odds && !body.results && !body.jockey_king && !body.trainer_king) {
+        alert("請至少選擇一項要下載的資料。");
+        return null;
+      }
+      const res = await fetch("/api/app/download_settings", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok || data.ok === false) {
+        alert(data.message || "儲存設定失敗");
+        return null;
+      }
+      return data;
+    }
+    document.querySelectorAll('input[name="dlMode"]').forEach((el) => {
+      el.addEventListener("change", syncDlModeEnabled);
+    });
+    document.getElementById("dlKind").addEventListener("change", syncDlKindHint);
+    document.getElementById("btnDlSites").addEventListener("click", async () => {
+      await loadDownloadSources(false);
+      openDlSitesDialog();
+    });
+    document.getElementById("btnDlSitesClose").addEventListener("click", () => {
+      closeDlSitesDialog();
+    });
+    document.getElementById("dlSitesDialog").addEventListener("cancel", (ev) => {
+      // Esc 關閉前先存檔
+      ev.preventDefault();
+      closeDlSitesDialog();
+    });
+    document.getElementById("tsBackup").addEventListener("change", syncTsBackupEnabled);
+    document.getElementById("tsBackupTime").addEventListener("input", syncTsBackupFilenamePreview);
+    document.getElementById("tsBackupTime").addEventListener("change", syncTsBackupFilenamePreview);
+    document.getElementById("btnTsSave").addEventListener("click", async () => {
+      const data = await saveTaskSettings();
+      if (!data) return;
+      alert(data.message || "已儲存");
+      setStatus(data.message || "任務設定已儲存");
+      closeTaskSettingsDialog();
+    });
+    document.getElementById("btnTsClose").addEventListener("click", () => closeTaskSettingsDialog());
+    document.getElementById("taskSettingsDialog").addEventListener("cancel", () => {
+      closeTaskSettingsDialog();
+    });
+    document.getElementById("btnDlAdd").addEventListener("click", async () => {
+      const url = document.getElementById("dlUrl").value.trim();
+      if (!url) { alert("請輸入網站網址。"); return; }
+      if (!(url.startsWith("http://") || url.startsWith("https://"))) {
+        alert("網址請以 http:// 或 https:// 開頭。");
+        return;
+      }
+      const kind = document.getElementById("dlKind").value;
+      if (kind === dlHorsePpKind && !url.includes("{horse_id}")) {
+        alert("往績網站模板必須包含 {horse_id}。");
+        return;
+      }
+      if (dlSources.some((s) => s.kind === kind && s.url === url)) {
+        alert("此網站已存在於清單中。");
+        return;
+      }
+      const name = document.getElementById("dlName").value.trim() || dlKinds[kind] || kind;
+      dlSources.push({kind, name, url, enabled: true});
+      try {
+        await persistDlSources();
+      } catch (err) {
+        dlSources.pop();
+        alert(String(err));
+        return;
+      }
+      document.getElementById("dlUrl").value = "";
+      document.getElementById("dlName").value = "";
+      dlSelected = dlSources.length - 1;
+      renderDlSitesGrid();
+      setStatus("已新增網站");
+    });
+    document.getElementById("btnDlApply").addEventListener("click", async () => {
+      if (dlSelected < 0 || dlSelected >= dlSources.length) {
+        alert("請先選取要修改的列。");
+        return;
+      }
+      const kind = document.getElementById("dlKind").value;
+      const url = document.getElementById("dlUrl").value.trim();
+      const name = document.getElementById("dlName").value.trim() || dlKinds[kind] || kind;
+      if (!url) { alert("請輸入網站網址。"); return; }
+      if (!(url.startsWith("http://") || url.startsWith("https://"))) {
+        alert("網址請以 http:// 或 https:// 開頭。");
+        return;
+      }
+      if (kind === dlHorsePpKind && !url.includes("{horse_id}")) {
+        alert("往績網站模板必須包含 {horse_id}。");
+        return;
+      }
+      if (dlSources.some((s, j) => j !== dlSelected && s.kind === kind && s.url === url)) {
+        alert("此網站已存在於清單中。");
+        return;
+      }
+      const old = dlSources[dlSelected];
+      if (old.kind !== kind && old.enabled) {
+        const enabledOld = dlSources.filter((s) => s.kind === old.kind && s.enabled);
+        if (enabledOld.length <= 1) {
+          alert(`「${dlKinds[old.kind] || old.kind}」至少保留一個啟用中的網站。`);
+          return;
+        }
+      }
+      dlSources[dlSelected] = {kind, name, url, enabled: old.enabled};
+      try { await persistDlSources(); }
+      catch (err) { alert(String(err)); return; }
+      renderDlSitesGrid();
+      setStatus("已更新網站");
+    });
+    document.getElementById("btnDlRemove").addEventListener("click", async () => {
+      if (dlSelected < 0 || dlSelected >= dlSources.length) {
+        alert("請先選取要刪除的網站。");
+        return;
+      }
+      const src = dlSources[dlSelected];
+      const same = dlSources.filter((s) => s.kind === src.kind);
+      if (same.length <= 1) {
+        alert(`「${dlKinds[src.kind] || src.kind}」至少保留一個網站。`);
+        return;
+      }
+      const removed = dlSources.splice(dlSelected, 1)[0];
+      try {
+        await persistDlSources();
+      } catch (err) {
+        dlSources.splice(dlSelected, 0, removed);
+        alert(String(err));
+        return;
+      }
+      if (dlSelected >= dlSources.length) dlSelected = dlSources.length - 1;
+      renderDlSitesGrid();
+      setStatus("已刪除網站");
+    });
+    document.getElementById("btnDlReset").addEventListener("click", async () => {
+      if (!confirm("還原為預設網站清單？目前自訂項目會被覆蓋。")) return;
+      const res = await fetch("/api/app/download_sources/reset", {method: "POST"});
+      const data = await res.json();
+      if (!res.ok || data.ok === false) {
+        alert(data.message || "還原失敗");
+        return;
+      }
+      dlSources = data.sources || [];
+      dlSelected = -1;
+      renderDlSitesGrid();
+      setStatus(data.message || "已還原預設");
+    });
+    document.getElementById("btnDlSave").addEventListener("click", async () => {
+      const data = await saveDlSettings();
+      if (!data) return;
+      alert(data.message || "已儲存");
+      setStatus(data.message || "下載設定已儲存");
+    });
+    document.getElementById("btnDlClose").addEventListener("click", () => closeTab("download"));
+    document.getElementById("btnDlCancelAll").addEventListener("click", async () => {
+      document.getElementById("btnDlCancelAll").disabled = true;
+      setBackgroundStatus("背景下載：正在取消…");
+      try {
+        const res = await fetch("/api/app/download_cancel", { method: "POST" });
+        const data = await res.json();
+        setBackgroundStatus(data.message || "已送出取消");
+      } catch (err) {
+        setBackgroundStatus("取消請求失敗：" + err);
+      } finally {
+        document.getElementById("btnDlCancelAll").disabled = false;
+      }
+    });
+    document.getElementById("btnDlExec").addEventListener("click", async () => {
+      const saved = await saveDlSettings();
+      if (!saved) return;
+      const body = dlSelection();
+      if (body.mode === "interval") {
+        setBackgroundStatus(`下載：開始（完成後每隔 ${body.minutes} 分鐘自動重複）`);
+      } else if (body.mode === "schedule") {
+        setBackgroundStatus(`下載：開始（之後每日 ${body.time} 自動下載）`);
+      } else {
+        setBackgroundStatus("下載：開始…");
+      }
+      document.getElementById("btnDlExec").disabled = true;
+      try {
+        const data = await runDownloadJob(body);
+        if (data.cancelled) setBackgroundStatus(data.message || "已取消下載");
+        else if (data.ok) setBackgroundStatus(data.message || "下載完成");
+        else setBackgroundStatus(data.message || "下載失敗");
+        if (data.ok && (body.jockey_king || body.trainer_king)) {
+          kingsMeetingsLoaded = false;
+          if (activeTab === "kings") await loadKings(true);
+        }
+      } catch (err) {
+        setBackgroundStatus("下載請求失敗：" + err);
+      } finally {
+        document.getElementById("btnDlExec").disabled = false;
+      }
+    });
+
+    // 間隔／指定時間由伺服器背景下載時，狀態列顯示進度與訊息
+    let _dlWasRunning = false;
+    setInterval(async () => {
+      try {
+        const data = await pollDownloadStatusOnce();
+        const running = !!data.running;
+        if (running) {
+          _dlWasRunning = true;
+        } else if (_dlWasRunning) {
+          setBackgroundStatus(data.last_result || data.display || "下載完成");
+          _dlWasRunning = false;
+        }
+      } catch (_err) {
+        /* ignore */
+      }
+    }, 1000);
+
+    applyTheme(Number(localStorage.getItem("hppv_theme_idx") || "0"));
+    document.getElementById("themeSelect").value = localStorage.getItem("hppv_theme_idx") || "0";
+    document.getElementById("racesHead").innerHTML = RACE_COLS.map((c) => `<th>${c}</th>`).join("");
+    finalizeDataGrid(document.getElementById("racesGrid"));
+    finalizeDataGrid(document.getElementById("horsesGrid"), 6);
+    if (!localStorage.getItem("hppv_menu_style")) {
+      localStorage.setItem("hppv_menu_style", "treeview");
+    }
+    renderMainMenuItems();
+    renderSideMenu();
+    openTab("ai");
+    loadAiChat();
+  </script>
+</body>
+</html>
