@@ -12,7 +12,6 @@ from bs4 import BeautifulSoup
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
-    QDialog,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -30,11 +29,13 @@ from PySide6.QtWidgets import (
 )
 
 from ..config import AppConfig, default_config
-from ..db import fetch_horse_by_id, get_connection, get_recent_form_for_horse, init_db
+from ..db import fetch_horse_by_id, fetch_race_records, get_connection, get_horse_status, init_db
 from ..download_sources import odds_graphql_url, racecard_base_url
-from ..hkjc_graphql import get_graphql_data, get_race_odds_pools, meeting_date_iso
+from ..hkjc_graphql import get_race_odds_pools
+from ..race_record_grid import RACE_RECORD_GRID_HEADERS, race_record_grid_values
 from .grid_nav import install_grid_keyboard_nav
 from .theme import (
+    apply_multi_column_sort,
     configure_data_grid,
     make_table_item,
     resize_grid_columns_to_content,
@@ -86,16 +87,24 @@ RACECARD_PREDICTED_ODDS_COLUMN = "預測賠率"
 # 即時賠率：初始會先用模型填一份；抓到排位資料後會再用 GraphQL 的 winOdds 重新更新（只更新既有且非後備）。
 RACECARD_IMMEDIATE_ODDS_COLUMN = "即時賠率"
 RACECARD_PLACE_ODDS_COLUMN = "即時位置賠率"
+# 顯示用差值（不入庫）：即時賠率 − 預測賠率。
+RACECARD_ODDS_DIFF_COLUMN = "即時賠率-預測賠率"
 
 RACECARD_DISPLAY_COLUMNS: list[str] = (
     RACECARD_DISPLAY_FIELDS
     + [
         RACECARD_PREDICTED_ODDS_COLUMN,
         RACECARD_IMMEDIATE_ODDS_COLUMN,
+        RACECARD_ODDS_DIFF_COLUMN,
         RACECARD_PLACE_ODDS_COLUMN,
         "後備",
     ]
 )
+
+# 實際存於 racecard_starters 的顯示欄（不含計算欄）。
+RACECARD_DB_DISPLAY_COLUMNS: list[str] = [
+    c for c in RACECARD_DISPLAY_COLUMNS if c != RACECARD_ODDS_DIFF_COLUMN
+]
 
 # 馬匹 ID：用於用 `race_records` 計算預測賠率（不顯示在 grid）。
 RACECARD_HIDDEN_HORSE_ID_COLUMN = "horse_id"
@@ -188,6 +197,26 @@ def _format_odds(odds_decimal: float) -> str:
     if "." in s:
         s = s.rstrip("0").rstrip(".")
     return s
+
+
+def _parse_odds_number(raw: Any) -> float | None:
+    """Parse odds text to float; return None if missing/invalid."""
+    s = str(raw or "").strip().replace(",", "")
+    if not s or s in {"-", "—", "N/A", "n/a", "SCR", "scr"}:
+        return None
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def odds_diff_display(immediate: Any, predicted: Any) -> str:
+    """即時賠率 − 預測賠率；缺任一值則空白。"""
+    imm = _parse_odds_number(immediate)
+    pred = _parse_odds_number(predicted)
+    if imm is None or pred is None:
+        return ""
+    return _format_odds(imm - pred)
 
 
 def _estimate_raw_win_probability(
@@ -388,75 +417,85 @@ def _update_immediate_odds_for_meeting_from_graphql(
     *,
     config: AppConfig | None = None,
 ) -> None:
+    """
+    以白名單內 horseOddsQuery（operationName=racing）更新獨贏／位置賠率。
+
+    注意：舊的 raceMeetings 大查詢目前會回 WHITELIST_ERROR，不可再依賴 runners.winOdds。
+    """
     gql = odds_graphql_url(config.data_dir) if config is not None else None
-    data = get_graphql_data(date=race_date, venue_code=racecourse_code, graphql_url=gql)
-    meetings = data.get("raceMeetings") or []
-    if not meetings:
-        return
+    try:
+        race_nos = [
+            int(r[0])
+            for r in conn.execute(
+                """
+                SELECT DISTINCT race_no
+                FROM racecard_starters
+                WHERE race_date = ? AND racecourse = ?
+                ORDER BY race_no ASC;
+                """,
+                (race_date, racecourse_code),
+            ).fetchall()
+        ]
+    except Exception:  # noqa: BLE001
+        race_nos = []
+    if not race_nos:
+        # 尚無排位列時，嘗試 1–14 場（馬會未開售則 oddsNodes 為空）
+        race_nos = list(range(1, 15))
 
-    wanted_date = meeting_date_iso(race_date)
-    wrote = 0
-    saw_runner = False
-    for meeting in meetings:
-        if meeting_date_iso(str(meeting.get("date") or "")) != wanted_date:
+    wrote_win = 0
+    wrote_place = 0
+    saw_pool = False
+    for race_no in race_nos:
+        try:
+            pools = get_race_odds_pools(
+                race_date,
+                racecourse_code,
+                int(race_no),
+                odds_types=["WIN", "PLA"],
+                graphql_url=gql,
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(f"[即時賠率] 第{race_no}場 GraphQL 失敗（略過）：{exc}")
             continue
-        if str(meeting.get("venueCode") or "") != str(racecourse_code):
-            continue
-
-        for race in meeting.get("races") or []:
-            race_no = race.get("no")
-            if race_no is None:
-                continue
-
-            for runner in race.get("runners") or []:
-                馬號 = runner.get("no")
-                if 馬號 is None:
+        if pools:
+            saw_pool = True
+        for pool in pools:
+            odds_type = str(pool.get("oddsType") or "").strip().upper()
+            nodes = pool.get("oddsNodes") or []
+            for node in nodes:
+                comb = str(node.get("combString") or "").strip()
+                odds_val = str(node.get("oddsValue") or "").strip()
+                if not comb or not odds_val:
                     continue
-                saw_runner = True
-                win_odds = str(runner.get("winOdds") or "").strip()
-                if not win_odds:
-                    continue
-                update_win_odds(
-                    conn=conn,
-                    race_date=race_date,
-                    racecourse=racecourse_code,
-                    race_no=int(race_no),
-                    馬號=str(馬號).strip(),
-                    win_odds=win_odds,
-                )
-                wrote += 1
-
-            # 同步即時位置賠率（PLA oddsNodes）
-            try:
-                pools = get_race_odds_pools(
-                    race_date,
-                    racecourse_code,
-                    int(race_no),
-                    odds_types=["WIN", "PLA"],
-                    graphql_url=gql,
-                )
-            except Exception as exc:  # noqa: BLE001
-                print(f"[即時位置賠率] GraphQL 更新失敗（略過）：{exc}")
-                pools = []
-            for pool in pools:
-                if str(pool.get("oddsType") or "") != "PLA":
-                    continue
-                for node in pool.get("oddsNodes") or []:
-                    comb = str(node.get("combString") or "").strip()
-                    odds_val = str(node.get("oddsValue") or "").strip()
-                    if not comb or not odds_val:
-                        continue
+                馬號 = comb.lstrip("0") or "0"
+                if odds_type == "WIN":
+                    update_win_odds(
+                        conn=conn,
+                        race_date=race_date,
+                        racecourse=racecourse_code,
+                        race_no=int(race_no),
+                        馬號=馬號,
+                        win_odds=odds_val,
+                    )
+                    wrote_win += 1
+                elif odds_type == "PLA":
                     update_place_odds(
                         conn=conn,
                         race_date=race_date,
                         racecourse=racecourse_code,
                         race_no=int(race_no),
-                        馬號=comb.lstrip("0") or "0",
+                        馬號=馬號,
                         place_odds=odds_val,
                     )
+                    wrote_place += 1
 
-    if wrote == 0 and saw_runner:
+    if saw_pool and wrote_win == 0:
         print("[即時賠率] 馬會尚未開出獨贏賠率，保留現有數值。")
+    elif wrote_win or wrote_place:
+        print(
+            f"[即時賠率] 已更新獨贏 {wrote_win}／位置 {wrote_place} "
+            f"（{race_date} {racecourse_code}）"
+        )
 
 
 def _race_no_to_label(race_no: int) -> str:
@@ -481,6 +520,24 @@ def _race_no_to_label(race_no: int) -> str:
             return "第十場"
         return f"第十{cn_digit.get(race_no % 10, '')}場"
     return f"第 {race_no} 場"
+
+
+def _normalize_post_time(raw: object) -> str | None:
+    """從『13:00』／『13:00草地』等字串抽出開跑時間 HH:mm。"""
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    matched = re.search(r"(\d{1,2}):(\d{2})", text)
+    if not matched:
+        return text
+    return f"{int(matched.group(1)):02d}:{matched.group(2)}"
+
+
+def _race_tab_label(race_no: int, post_time: object = None) -> str:
+    """場次分頁標題：第一場 13:00（有開跑時間時附上）。"""
+    base = _race_no_to_label(race_no)
+    t = _normalize_post_time(post_time)
+    return f"{base} {t}" if t else base
 
 
 def _clean_cell_text(s: str) -> str:
@@ -629,8 +686,9 @@ def _parse_race_event_panel_from_racecard_html(
     line2 = _clean_cell_text(m.group(3))
     line3 = _clean_cell_text(m.group(4))
 
+    # 容許「13:00草地」等接在時間後的字樣
     m1 = re.match(
-        r"^(\d{4}年\d{1,2}月\d{1,2}日)\s*,\s*([^,]+)\s*,\s*([^,]+)\s*,\s*(\d{1,2}:\d{2})\s*$",
+        r"^(\d{4}年\d{1,2}月\d{1,2}日)\s*,\s*([^,]+)\s*,\s*([^,]+)\s*,\s*(\d{1,2}:\d{2})",
         line1,
     )
     calendar_date = weekday = meeting_venue = post_time = None
@@ -639,7 +697,7 @@ def _parse_race_event_panel_from_racecard_html(
             _clean_cell_text(m1.group(1)),
             _clean_cell_text(m1.group(2)),
             _clean_cell_text(m1.group(3)),
-            _clean_cell_text(m1.group(4)),
+            _normalize_post_time(m1.group(4)),
         )
 
     m2 = re.match(r"^(.+?)\s*,\s*\"([^\"]+)\"\s*賽道\s*,\s*(.+)\s*$", line2)
@@ -780,15 +838,20 @@ def _build_race_info_header_widget(
         ("獎金", "prize_money"),
         ("評分範圍", "rating_range"),
         ("班次", "race_class"),
+        ("標準完成時間", "standard_finish_time"),
     ]
 
     if not row:
         tip = QLabel("（此場尚無場次摘要：請按「更新資料」重新抓取，或該日賽事頁面暫無資料）")
         tip.setWordWrap(True)
         grid.addWidget(tip, 0, 0, 1, pairs_per_row * 2)
+        frame.setProperty("post_time", "")
         return frame
 
-    rdict = dict(row)
+    from racing.standard_times import attach_standard_finish_time
+
+    rdict = attach_standard_finish_time(dict(row)) or {}
+    frame.setProperty("post_time", _normalize_post_time(rdict.get("post_time")) or "")
     for i, (cn, key) in enumerate(pairs):
         row_idx = i // pairs_per_row
         slot = i % pairs_per_row
@@ -798,6 +861,8 @@ def _build_race_info_header_widget(
         lk.setStyleSheet("color: #1a3a5c; font-weight: 600;")
         lk.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         val = rdict.get(key)
+        if key == "post_time":
+            val = _normalize_post_time(val)
         if (
             key == "track_name"
             and val is not None
@@ -1349,9 +1414,27 @@ class RacecardPanel(QWidget):
         root.addLayout(date_row)
 
         self._tabs = QTabWidget()
-        root.addWidget(self._tabs, 1)
+        # 排位約 60%、下方往績約 40%
+        root.addWidget(self._tabs, 3)
+
+        self._form_title = QLabel("往績（請選擇上方馬匹）")
+        self._form_title.setStyleSheet("font-weight: 700;")
+        self._form_table = QTableWidget(0, len(RACE_RECORD_GRID_HEADERS))
+        self._form_table.setHorizontalHeaderLabels(list(RACE_RECORD_GRID_HEADERS))
+        configure_data_grid(
+            self._form_table,
+            fixed_viewport=False,
+            visible_rows=6,
+            multi_select=False,
+            multi_sort=True,
+            multi_sort_headers=list(RACE_RECORD_GRID_HEADERS),
+        )
+        install_grid_keyboard_nav(self._form_table)
+        root.addWidget(self._form_title, 0)
+        root.addWidget(self._form_table, 2)
 
         self.setLayout(root)
+        self._form_horse_id = ""
 
         self._load_latest_stored_meeting()
 
@@ -1363,6 +1446,7 @@ class RacecardPanel(QWidget):
         if self._history_combo.count() <= 0:
             self._meeting = None
             self._tabs.clear()
+            self._clear_form()
             return
         # 若先前賽日仍在清單，維持；否則改最新
         data = self._history_combo.currentData()
@@ -1434,7 +1518,8 @@ class RacecardPanel(QWidget):
         conn = get_connection(self._config.db_path)
         try:
             display_cols = list(RACECARD_DISPLAY_COLUMNS)
-            display_cols_sql = [f'"{c}"' for c in display_cols]
+            db_cols = list(RACECARD_DB_DISPLAY_COLUMNS)
+            display_cols_sql = [f'"{c}"' for c in db_cols]
 
             # Filter by current meeting if we have it.
             if self._meeting:
@@ -1484,7 +1569,6 @@ class RacecardPanel(QWidget):
             horse_id_col = RACECARD_HIDDEN_HORSE_ID_COLUMN
             for race_no in race_nos:
                 table = QTableWidget()
-                table.setSortingEnabled(True)
                 table.setColumnCount(len(display_cols))
                 table.setHorizontalHeaderLabels(display_cols)
                 configure_data_grid(
@@ -1492,6 +1576,8 @@ class RacecardPanel(QWidget):
                     multi_select=True,
                     enable_copy=True,
                     fixed_viewport=False,
+                    multi_sort=True,
+                    multi_sort_headers=list(display_cols),
                 )
                 table.setShowGrid(True)
                 table.setStyleSheet(
@@ -1532,7 +1618,13 @@ class RacecardPanel(QWidget):
                     table.insertRow(row_idx)
                     row_horse_id = str(r["__horse_id"] or "").strip()
                     for c_idx, name in enumerate(display_cols):
-                        val = r[name]
+                        if name == RACECARD_ODDS_DIFF_COLUMN:
+                            val = odds_diff_display(
+                                r[RACECARD_IMMEDIATE_ODDS_COLUMN],
+                                r[RACECARD_PREDICTED_ODDS_COLUMN],
+                            )
+                        else:
+                            val = r[name]
                         item = make_table_item("" if val is None else str(val))
                         if c_idx == 0:
                             # 將該列 horse_id 掛在第 1 欄，供雙擊事件轉跳主畫面往績。
@@ -1540,6 +1632,9 @@ class RacecardPanel(QWidget):
                         table.setItem(row_idx, c_idx, item)
 
                 resize_grid_columns_to_content(table)
+                table.itemSelectionChanged.connect(
+                    lambda t=table: self._on_starter_selection_changed(t)
+                )
                 table.itemDoubleClicked.connect(self._on_table_item_double_clicked)
                 install_grid_keyboard_nav(table)
 
@@ -1553,15 +1648,54 @@ class RacecardPanel(QWidget):
                 header.setSizePolicy(
                     QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum
                 )
-                # 上方場次摘要約 30%，Grid 約 70%
-                tab_layout.addWidget(header, 3)
-                tab_layout.addWidget(table, 7)
-                self._tabs.addTab(tab_page, _race_no_to_label(race_no))
+                tab_layout.addWidget(header, 0)
+                tab_layout.addWidget(table, 1)
+                self._tabs.addTab(
+                    tab_page,
+                    _race_tab_label(race_no, header.property("post_time")),
+                )
+            self._clear_form()
+            # 預設選取第一場第一列，載入往績
+            if self._tabs.count() > 0:
+                first_page = self._tabs.widget(0)
+                if first_page is not None:
+                    first_table = first_page.findChild(QTableWidget)
+                    if first_table is not None and first_table.rowCount() > 0:
+                        first_table.selectRow(0)
+                        self._on_starter_selection_changed(first_table)
         finally:
             conn.close()
 
+    def _clear_form(self) -> None:
+        self._form_horse_id = ""
+        self._form_title.setText("往績（請選擇上方馬匹）")
+        self._form_table.setRowCount(0)
+
+    def _on_starter_selection_changed(self, table: QTableWidget) -> None:
+        """選取排位列時，在下方顯示該馬往績。"""
+        rows = table.selectionModel().selectedRows() if table.selectionModel() else []
+        if not rows:
+            return
+        first = table.item(rows[0].row(), 0)
+        if first is None:
+            return
+        horse_id = str(first.data(Qt.UserRole) or "").strip()
+        if not horse_id:
+            return
+        horse_name = ""
+        # 嘗試從「馬名」欄讀取顯示名稱
+        headers = [
+            table.horizontalHeaderItem(i).text() if table.horizontalHeaderItem(i) else ""
+            for i in range(table.columnCount())
+        ]
+        if "馬名" in headers:
+            name_item = table.item(rows[0].row(), headers.index("馬名"))
+            if name_item is not None:
+                horse_name = str(name_item.text() or "").strip()
+        self._load_form_for_horse(horse_id, horse_name)
+
     def _on_table_item_double_clicked(self, item: QTableWidgetItem) -> None:
-        """雙擊排位中的馬匹：查詢 race_records 並即時顯示往績。"""
+        """雙擊排位中的馬匹：切至主畫面馬匹／往績。"""
         if item is None:
             return
         table = item.tableWidget()
@@ -1573,62 +1707,51 @@ class RacecardPanel(QWidget):
         horse_id = str(first.data(Qt.UserRole) or "").strip()
         if not horse_id:
             return
-        self._show_recent_form_dialog(horse_id)
-        # 保留既有事件，讓主畫面仍可在需要時切至該馬往績。
         self.horse_double_clicked.emit(horse_id)
 
-    def _show_recent_form_dialog(self, horse_id: str, limit: int = 10) -> None:
-        """顯示指定馬匹最近往績（簡化版）。"""
-        rows = get_recent_form_for_horse(self._config.db_path, horse_id, limit=limit)
-        horse_name = ""
-        if rows:
-            horse_name = str(rows[0]["name_zh"] or rows[0]["name_en"] or "").strip()
-        if not horse_name:
-            hr = fetch_horse_by_id(self._config.db_path, horse_id)
-            if hr is not None:
-                horse_name = str(hr["name_zh"] or hr["name_en"] or "").strip()
-
-        title_name = f"{horse_name}（{horse_id}）" if horse_name else horse_id
-        dlg = QDialog(self)
-        dlg.setWindowTitle(f"{title_name}｜最近往績")
-        dlg.resize(980, 360)
-        layout = QVBoxLayout(dlg)
-
-        if not rows:
-            layout.addWidget(QLabel("暫無往績。"))
-            dlg.exec()
+    def _load_form_for_horse(self, horse_id: str, horse_name: str = "", limit: int | None = None) -> None:
+        """下方往績 GRID：與「馬匹／往績」同一套欄位與全部往績。"""
+        hid = str(horse_id or "").strip()
+        if not hid:
+            self._clear_form()
             return
+        if hid == self._form_horse_id and self._form_table.rowCount() > 0:
+            return
+        self._form_horse_id = hid
+        rows = fetch_race_records(self._config.db_path, hid)
+        if limit is not None and limit > 0:
+            rows = rows[:limit]
+        name = str(horse_name or "").strip()
+        if not name:
+            hr = fetch_horse_by_id(self._config.db_path, hid)
+            if hr is not None:
+                name = str(hr["name_zh"] or hr["name_en"] or "").strip()
+        title = f"{name}（{hid}）｜往績" if name else f"{hid}｜往績"
+        self._form_title.setText(title)
 
-        cols: list[tuple[str, str]] = [
-            ("race_date", "日期"),
-            ("venue", "場地"),
-            ("race_no", "場次"),
-            ("distance", "途程"),
-            ("class_band", "班次"),
-            ("draw", "檔位"),
-            ("finish_pos", "名次"),
-            ("rating", "評分"),
-            ("jockey", "騎師"),
-            ("trainer", "練馬師"),
-            ("time", "時間"),
-        ]
-        table = QTableWidget(dlg)
-        table.setColumnCount(len(cols))
-        table.setHorizontalHeaderLabels([c[1] for c in cols])
-        table.setRowCount(len(rows))
-        table.setEditTriggers(QTableWidget.NoEditTriggers)
-        table.setSelectionBehavior(QTableWidget.SelectRows)
-        table.setSelectionMode(QTableWidget.SingleSelection)
-        for r_idx, row in enumerate(rows):
-            for c_idx, (k, _label) in enumerate(cols):
-                val = row[k] if k in row.keys() else ""
-                item = QTableWidgetItem("" if val is None else str(val))
-                if c_idx in (1, 2, 5, 6, 7):
-                    item.setTextAlignment(Qt.AlignCenter)
-                table.setItem(r_idx, c_idx, item)
-        table.resizeColumnsToContents()
-        layout.addWidget(table, 1)
-        dlg.exec()
+        flag_status = get_horse_status(self._config.db_path, hid)
+        numeric_cols = {2, 4, 7, 8, 11, 12, 15, 17}
+        prev_keys = list(getattr(self._form_table, "_multi_sort_keys", []) or [])
+        self._form_table.setRowCount(0)
+        for r in rows:
+            r_idx = self._form_table.rowCount()
+            self._form_table.insertRow(r_idx)
+            values = race_record_grid_values(r, flag_status)
+            for c_idx, val in enumerate(values):
+                self._form_table.setItem(
+                    r_idx,
+                    c_idx,
+                    make_table_item(str(val), numeric=c_idx in numeric_cols),
+                )
+        resize_grid_columns_to_content(self._form_table)
+        if prev_keys:
+            apply_multi_column_sort(
+                self._form_table,
+                prev_keys,
+                base_headers=list(RACE_RECORD_GRID_HEADERS),
+            )
+        if not rows:
+            self._form_title.setText(f"{title}（暫無往績）")
 
 
 class RacecardRankWindow(QMainWindow):

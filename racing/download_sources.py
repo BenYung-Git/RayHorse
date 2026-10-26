@@ -19,6 +19,9 @@ KIND_ODDS = "odds"
 KIND_RESULTS = "results"
 KIND_JOCKEY_KING = "jockey_king"
 KIND_TRAINER_KING = "trainer_king"
+KIND_FOOTBALL_ODDS = "football_odds"
+KIND_FOOTBALL_RESULTS = "football_results"
+KIND_EPL = "epl"
 
 KIND_LABELS: dict[str, str] = {
     KIND_HORSES_RATING: "馬匹清單",
@@ -28,6 +31,9 @@ KIND_LABELS: dict[str, str] = {
     KIND_RESULTS: "賽馬結果",
     KIND_JOCKEY_KING: "騎師王",
     KIND_TRAINER_KING: "練馬師王",
+    KIND_FOOTBALL_ODDS: "足球賠率",
+    KIND_FOOTBALL_RESULTS: "足球賽果",
+    KIND_EPL: "英超賽程/賽果",
 }
 
 KIND_HINTS: dict[str, str] = {
@@ -38,6 +44,9 @@ KIND_HINTS: dict[str, str] = {
     KIND_RESULTS: "賽果頁（localresults），依賽日／場地／場次抓取名次",
     KIND_JOCKEY_KING: "騎師王賽日積分頁（jkcresult）",
     KIND_TRAINER_KING: "練馬師王賽日積分頁（tncresult）",
+    KIND_FOOTBALL_ODDS: "足球賠率 GraphQL 端點（主客和／讓球／大細／波膽）",
+    KIND_FOOTBALL_RESULTS: "足球賽果 GraphQL 端點（近七日賽果）",
+    KIND_EPL: "英超賽程/賽果頁（Footylogic；下載近 1 季／約 1 年，如 /tournament/league/50071337/fixturesresults）",
 }
 
 
@@ -90,6 +99,21 @@ def default_download_sources() -> list[DownloadSource]:
             KIND_TRAINER_KING,
             "練馬師王（tncresult）",
             "https://racing.hkjc.com/zh-hk/local/information/tncresult",
+        ),
+        DownloadSource(
+            KIND_FOOTBALL_ODDS,
+            "足球賠率（GraphQL）",
+            "https://info.cld.hkjc.com/graphql/base/",
+        ),
+        DownloadSource(
+            KIND_FOOTBALL_RESULTS,
+            "足球賽果（GraphQL）",
+            "https://info.cld.hkjc.com/graphql/base/",
+        ),
+        DownloadSource(
+            KIND_EPL,
+            "英超賽程/賽果（Footylogic）",
+            "https://footylogic.com/zh/tournament/league/50071337/fixturesresults",
         ),
     ]
 
@@ -153,6 +177,24 @@ def load_download_sources(data_dir: Path) -> list[DownloadSource]:
             out.append(src)
             have_kinds.add(src.kind)
             changed = True
+    # 舊版 openfootball 來源改為 Footylogic 頁面
+    epl_default = next((s for s in defaults if s.kind == KIND_EPL), None)
+    if epl_default is not None:
+        upgraded: list[DownloadSource] = []
+        for src in out:
+            if src.kind == KIND_EPL and "openfootball" in (src.url or "").lower():
+                upgraded.append(
+                    DownloadSource(
+                        kind=src.kind,
+                        name=epl_default.name,
+                        url=epl_default.url,
+                        enabled=src.enabled,
+                    )
+                )
+                changed = True
+            else:
+                upgraded.append(src)
+        out = upgraded
     if changed:
         try:
             save_download_sources(data_dir, out)

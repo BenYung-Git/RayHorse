@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import html
+import json
+import re
 from collections.abc import Callable
 from pathlib import Path
 
@@ -15,7 +17,6 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
-    QHeaderView,
     QInputDialog,
     QLabel,
     QLineEdit,
@@ -49,6 +50,11 @@ from ..ai_engine import (
     user_prompts,
 )
 from ..config import AppConfig
+from .theme import (
+    configure_data_grid,
+    install_multi_column_sort,
+    make_table_item,
+)
 
 
 class _AnswerWorker(QObject):
@@ -70,7 +76,7 @@ class _AnswerWorker(QObject):
 
 
 class _PromptEdit(QPlainTextEdit):
-    """五行對話框。游標在第一行按上鍵、最後一行按下鍵，切換上一／下一指令。"""
+    """五行對話框。游標在第一行按上鍵、最後一行按下鍵，切換上一／下一對話。"""
 
     _VISIBLE_LINES = 5
 
@@ -142,27 +148,29 @@ class AiAssistantPanel(QWidget):
         root.setSpacing(8)
 
         hint = QLabel(
-            "對話框為五行。第一行按↑上一指令、最後一行按↓下一指令。Ctrl+Enter 送出。"
+            "對話框為五行。第一行按↑上一對話、最後一行按↓下一對話。Ctrl+Enter 送出。"
         )
         hint.setWordWrap(True)
         root.addWidget(hint)
 
         self._chat = QTextBrowser()
         self._chat.setOpenExternalLinks(False)
-        self._chat.setMinimumHeight(220)
-        root.addWidget(self._chat, 1)
+        self._chat.setMinimumHeight(160)
+        root.addWidget(self._chat, 2)
 
         self._table_label = QLabel("報表／列表")
         root.addWidget(self._table_label)
         self._table = QTableWidget(0, 0)
-        self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self._table.setAlternatingRowColors(True)
-        self._table.horizontalHeader().setStretchLastSection(False)
-        self._table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         self._table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
-        self._table.setMinimumHeight(160)
-        root.addWidget(self._table, 1)
+        self._table.setMinimumHeight(180)
+        configure_data_grid(
+            self._table,
+            multi_select=True,
+            enable_copy=True,
+            fixed_viewport=False,
+        )
+        # 報表欄位動態產生：有資料後再啟用多欄排序
+        root.addWidget(self._table, 3)
 
         input_row = QHBoxLayout()
         input_row.setSpacing(6)
@@ -173,17 +181,31 @@ class AiAssistantPanel(QWidget):
         self._cmd_button = QPushButton("選取指令")
         self._cmd_button.setToolTip("LOOKUP AI_COMMAND，把 CMD_PROMPT 放入對話框")
         self._cmd_button.clicked.connect(self._lookup_command)
-        self._cmd_prev_button = QPushButton("上一指令")
-        self._cmd_prev_button.setToolTip("放入上一筆已儲存指令（↑）")
-        self._cmd_prev_button.clicked.connect(self._command_older)
-        self._cmd_next_button = QPushButton("下一指令")
-        self._cmd_next_button.setToolTip("放入下一筆已儲存指令（↓）")
-        self._cmd_next_button.clicked.connect(self._command_newer)
+        self._cmd_prev_button = QPushButton("上一對話")
+        self._cmd_prev_button.setToolTip("放入上一則已送出的對話（↑）")
+        self._cmd_prev_button.clicked.connect(self._history_older)
+        self._cmd_next_button = QPushButton("下一對話")
+        self._cmd_next_button.setToolTip("放入下一則已送出的對話（↓）")
+        self._cmd_next_button.clicked.connect(self._history_newer)
         button_col.addWidget(self._send_button)
         button_col.addWidget(self._cmd_button)
         button_col.addWidget(self._cmd_prev_button)
         button_col.addWidget(self._cmd_next_button)
-        self._input = _PromptEdit(self._command_older, self._command_newer, self._send)
+        # 左側欄與「儲存指令」同寬（以欄內最寬按鈕為準）
+        side_w = max(
+            self._send_button.sizeHint().width(),
+            self._cmd_button.sizeHint().width(),
+            self._cmd_prev_button.sizeHint().width(),
+            self._cmd_next_button.sizeHint().width(),
+        )
+        for b in (
+            self._send_button,
+            self._cmd_button,
+            self._cmd_prev_button,
+            self._cmd_next_button,
+        ):
+            b.setFixedWidth(side_w)
+        self._input = _PromptEdit(self._history_older, self._history_newer, self._send)
         self._input.setPlaceholderText("輸入馬名、編號、問題，或要儲存的指令")
         input_row.addLayout(button_col, 0)
         input_row.addWidget(self._input, 1)
@@ -193,6 +215,7 @@ class AiAssistantPanel(QWidget):
         save_btn = QPushButton("儲存指令")
         save_btn.setToolTip("把對話框內容寫入 AI_COMMAND.CMD_PROMPT")
         save_btn.clicked.connect(self._save_command)
+        save_btn.setFixedWidth(side_w)
         upload_btn = QPushButton("上傳文件")
         upload_btn.clicked.connect(self._upload_document)
         export_btn = QPushButton("匯出報表")
@@ -212,6 +235,7 @@ class AiAssistantPanel(QWidget):
         ensure_default_commands(self._config.db_path)
         self._reload_history()
         self._load_transcript()
+        self._restore_last_table()
         self._input.setFocus()
 
     def _reload_history(self) -> None:
@@ -251,7 +275,11 @@ class AiAssistantPanel(QWidget):
             append_chat(self._config.db_path, role, content)
 
     def _history_older(self) -> None:
-        if not self._history or self._hist_index <= 0:
+        if not self._history:
+            self._status.setText("尚無對話紀錄")
+            return
+        if self._hist_index <= 0:
+            self._status.setText(f"對話 1/{len(self._history)}（已是第一則）")
             return
         if self._hist_index == len(self._history):
             self._draft = self._input.text()
@@ -260,13 +288,15 @@ class AiAssistantPanel(QWidget):
         self._status.setText(f"對話 {self._hist_index + 1}/{len(self._history)}")
 
     def _history_newer(self) -> None:
-        if self._hist_index >= len(self._history):
+        if not self._history:
+            self._status.setText("尚無對話紀錄")
+            return
+        if self._hist_index >= len(self._history) - 1:
+            self._hist_index = len(self._history)
+            self._input.setText(self._draft)
+            self._status.setText("已回到目前輸入")
             return
         self._hist_index += 1
-        if self._hist_index == len(self._history):
-            self._input.setText(self._draft)
-            self._status.setText("")
-            return
         self._input.setText(self._history[self._hist_index])
         self._status.setText(f"對話 {self._hist_index + 1}/{len(self._history)}")
 
@@ -374,9 +404,28 @@ class AiAssistantPanel(QWidget):
         self._status.setText(f"已上傳 {path.name}")
 
     def _export_table(self) -> None:
-        if not self._table_rows:
+        if self._table.rowCount() <= 0 or self._table.columnCount() <= 0:
             QMessageBox.information(self, "匯出報表", "目前沒有可匯出的列表。")
             return
+        # 依目前 Grid 顯示順序匯出（含多欄排序後）
+        columns: list[str] = []
+        for col in range(self._table.columnCount()):
+            header = self._table.horizontalHeaderItem(col)
+            raw = header.text() if header is not None else ""
+            base = re.sub(r"\s*[↑↓]\d*\s*$", "", raw).strip()
+            columns.append(base or f"欄{col + 1}")
+        rows: list[list[str]] = []
+        for r_index in range(self._table.rowCount()):
+            rows.append(
+                [
+                    (
+                        self._table.item(r_index, c_index).text()
+                        if self._table.item(r_index, c_index) is not None
+                        else ""
+                    )
+                    for c_index in range(self._table.columnCount())
+                ]
+            )
         default = str(self._config.data_dir / "ai_report.xlsx")
         path_text, _selected = QFileDialog.getSaveFileName(
             self,
@@ -390,7 +439,7 @@ class AiAssistantPanel(QWidget):
         if path.suffix.lower() not in {".xlsx", ".csv"}:
             path = path.with_suffix(".xlsx")
         try:
-            export_rows(self._table_columns, self._table_rows, path)
+            export_rows(columns, rows, path)
         except Exception as exc:  # noqa: BLE001
             QMessageBox.warning(self, "匯出報表", str(exc))
             return
@@ -408,6 +457,7 @@ class AiAssistantPanel(QWidget):
         self._history = []
         self._hist_index = 0
         self._draft = ""
+        self._show_table([], [])
         self._status.setText("對話已清除")
 
     def _edit_settings(self) -> None:
@@ -471,22 +521,79 @@ class AiAssistantPanel(QWidget):
         self._append("assistant", f"查詢失敗：{message}", persist=True)
         self._status.setText("失敗")
 
-    def _show_table(self, columns: list[str], rows: list[list[str]]) -> None:
+    def _last_table_path(self) -> Path:
+        return Path(self._config.data_dir) / "ai_last_table.json"
+
+    def _persist_last_table(self) -> None:
+        path = self._last_table_path()
+        try:
+            if self._table_rows:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(
+                    json.dumps(
+                        {"columns": self._table_columns, "rows": self._table_rows},
+                        ensure_ascii=False,
+                    ),
+                    encoding="utf-8",
+                )
+            elif path.is_file():
+                path.unlink()
+        except Exception:
+            pass
+
+    def _restore_last_table(self) -> None:
+        path = self._last_table_path()
+        try:
+            if not path.is_file():
+                return
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            cols = raw.get("columns") or []
+            rows = raw.get("rows") or []
+            if isinstance(cols, list) and isinstance(rows, list) and rows:
+                self._show_table([str(c) for c in cols], rows, persist=False)
+        except Exception:
+            pass
+
+    def _show_table(
+        self, columns: list[str], rows: list[list[str]], *, persist: bool = True
+    ) -> None:
         self._table_columns = list(columns)
         self._table_rows = [list(row) for row in rows]
+        prev_keys = list(getattr(self._table, "_multi_sort_keys", []) or [])
+        prev_bases = self._table.property("_multi_sort_base_headers")
+        same_cols = (
+            isinstance(prev_bases, list)
+            and [str(x) for x in prev_bases] == list(columns)
+        )
         self._table.clear()
         self._table.setColumnCount(len(columns))
         self._table.setHorizontalHeaderLabels(columns)
         self._table.setRowCount(len(rows))
         for r_index, row in enumerate(rows):
             for c_index, value in enumerate(row):
-                item = QTableWidgetItem(value)
-                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                text = "" if value is None else str(value)
+                item = make_table_item(text)
+                item.setToolTip(text)
                 self._table.setItem(r_index, c_index, item)
+        # 依內容調欄寬，不強制截成 20 字，完整顯示報表資料
         self._table.resizeColumnsToContents()
+        header = self._table.horizontalHeader()
+        for col in range(self._table.columnCount()):
+            w = self._table.columnWidth(col)
+            self._table.setColumnWidth(col, max(48, min(w + 8, 480)))
+        header.setStretchLastSection(False)
+        # 點表頭排序；Shift+點可多欄（與排位／馬匹 Grid 相同）
+        if columns:
+            install_multi_column_sort(
+                self._table,
+                base_headers=list(columns),
+                initial_keys=prev_keys if same_cols else None,
+            )
         self._table_label.setText(
             f"報表／列表（{len(rows)} 列 × {len(columns)} 欄）" if rows else "報表／列表"
         )
+        if persist:
+            self._persist_last_table()
 
     def focus_input(self) -> None:
         self._input.setFocus()

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Callable
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QResizeEvent
+from PySide6.QtGui import QHideEvent, QResizeEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -70,6 +70,14 @@ class RaceAnalysisPanel(QWidget):
         self._config = config
         self._on_status = on_status
         self._loading = False
+        # 字級跟隨全域主題（工具列 +/-），此處只調按鈕內距
+        self.setStyleSheet(
+            """
+            RaceAnalysisPanel QPushButton {
+                padding: 3px 8px;
+            }
+            """
+        )
 
         self._meeting = QComboBox()
         self._meeting.currentIndexChanged.connect(self._on_meeting_changed)
@@ -153,7 +161,8 @@ class RaceAnalysisPanel(QWidget):
 
         self._template = QComboBox()
         self._template.setMinimumWidth(200)
-        self._template.setToolTip("選擇已儲存的分析範本後按「取出」")
+        self._template.setToolTip("選擇範本即時套用欄位／排序／條件（不含賽日）")
+        self._template.currentIndexChanged.connect(self._on_template_changed)
 
         preview_btn = QPushButton("預覽指令")
         style_action_button(preview_btn, QStyle.StandardPixmap.SP_FileDialogContentsView)
@@ -169,10 +178,6 @@ class RaceAnalysisPanel(QWidget):
         style_action_button(fill_btn, QStyle.StandardPixmap.SP_CommandLink)
         fill_btn.setToolTip("只填入指令，不自動送出")
         fill_btn.clicked.connect(lambda: self._send_to_ai(auto_send=False))
-        load_tpl_btn = QPushButton("取出範本")
-        style_action_button(load_tpl_btn, QStyle.StandardPixmap.SP_DialogOpenButton)
-        load_tpl_btn.setToolTip("套用選取的範本（欄位／排序／條件）")
-        load_tpl_btn.clicked.connect(self._load_selected_template)
         save_tpl_btn = QPushButton("儲存為範本")
         style_action_button(save_tpl_btn, QStyle.StandardPixmap.SP_DialogSaveButton)
         save_tpl_btn.setToolTip("把目前欄位、排序、條件存成範本")
@@ -184,7 +189,7 @@ class RaceAnalysisPanel(QWidget):
         note = QLabel(
             "條件以 GRID 管理；啟用列會寫入 AI 指令。"
             "預設三種計分可由本機合計分數引擎直接出表；自訂條件視內容可能走模型。"
-            "範本只存欄位／排序／條件，不含賽日。"
+            "選擇範本會即時套用；範本只存欄位／排序／條件，不含賽日。"
         )
         note.setWordWrap(True)
 
@@ -220,7 +225,6 @@ class RaceAnalysisPanel(QWidget):
         right = QVBoxLayout()
         right.setSpacing(8)
         for btn in (
-            load_tpl_btn,
             save_tpl_btn,
             del_tpl_btn,
             preview_btn,
@@ -241,31 +245,83 @@ class RaceAnalysisPanel(QWidget):
         root.addLayout(body, 1)
 
         self._reload_meetings()
-        self._reload_templates()
-        self._load_prefs_into_ui()
+        prefs = load_prefs(self._config.data_dir)
+        self._apply_prefs_dict(prefs)
+        self._restore_session_meeting(prefs)
+        self._reload_templates(
+            select_id=str(prefs.get("template_id") or "") or None,
+            apply=False,
+        )
         if self._table.rowCount() == 0:
             self._set_condition_rows(default_condition_rows())
         self._fit_fields_height()
 
-    def reload(self) -> None:
-        self._reload_meetings()
-        self._reload_templates()
+    def hideEvent(self, event: QHideEvent) -> None:  # noqa: N802
+        """離開分頁時保存目前設定，返回時可還原。"""
+        if not self._loading:
+            self._persist_prefs()
+        super().hideEvent(event)
 
-    def _reload_templates(self, *, select_id: str | None = None) -> None:
-        keep = select_id or self._template.currentData()
+    def reload(self) -> None:
+        snapshot = self._current_analysis_payload()
+        self._reload_meetings()
+        self._apply_prefs_dict(snapshot)
+        self._restore_session_meeting(snapshot)
+        self._reload_templates(
+            select_id=str(snapshot.get("template_id") or "") or None,
+            apply=False,
+        )
+
+    def _reload_templates(
+        self, *, select_id: str | None = None, apply: bool = False
+    ) -> None:
+        keep = select_id if select_id is not None else self._template.currentData()
         self._template.blockSignals(True)
         self._template.clear()
-        self._template.addItem("（選擇範本）", None)
         for item in load_templates(self._config.data_dir):
             self._template.addItem(str(item.get("name") or item.get("id")), item.get("id"))
+        chosen = 0  # 預設第 1 個範本
         if keep:
             for i in range(self._template.count()):
                 if self._template.itemData(i) == keep:
-                    self._template.setCurrentIndex(i)
+                    chosen = i
                     break
+        if self._template.count():
+            self._template.setCurrentIndex(chosen)
         self._template.blockSignals(False)
+        if apply:
+            self._apply_current_template()
+
+    def _on_template_changed(self, _index: int) -> None:
+        if self._loading:
+            return
+        self._apply_current_template()
+
+    def _apply_current_template(self) -> None:
+        tid = self._template.currentData()
+        if not tid:
+            return
+        tpl = get_template(self._config.data_dir, str(tid))
+        if not tpl:
+            self._status("找不到該範本")
+            self._reload_templates(apply=False)
+            return
+        self._apply_prefs_dict(template_as_prefs(tpl))
+        self._persist_prefs()
+        self._status(f"已套用範本：{tpl.get('name')}")
 
     def _current_analysis_payload(self) -> dict:
+        data = self._meeting.currentData()
+        race_date = ""
+        racecourse = ""
+        if data:
+            race_date = str(data[0] or "")
+            racecourse = str(data[1] or "")
+        race_no = self._race_no.currentData()
+        try:
+            race_no_i = int(race_no) if race_no is not None else None
+        except (TypeError, ValueError):
+            race_no_i = None
         return {
             "columns": self._selected_columns(),
             "columns_text": self._fields.toPlainText().strip(),
@@ -273,6 +329,12 @@ class RaceAnalysisPanel(QWidget):
             "sort_ascending": self._sort_asc.isChecked(),
             "all_races": self._race_all.isChecked(),
             "conditions": [r.to_dict() for r in self._condition_rows_from_grid()],
+            "race_date": race_date,
+            "racecourse": racecourse,
+            "race_no": race_no_i,
+            "title": self._title.text().strip(),
+            "template_id": str(self._template.currentData() or ""),
+            "preview": self._preview.toPlainText(),
         }
 
     def _apply_prefs_dict(self, prefs: dict) -> None:
@@ -307,20 +369,40 @@ class RaceAnalysisPanel(QWidget):
             ]
             if rows:
                 self._set_condition_rows(rows)
+        title = str(prefs.get("title") or "").strip()
+        if title:
+            self._title.setText(title)
+        preview = prefs.get("preview")
+        if isinstance(preview, str) and preview:
+            self._preview.setPlainText(preview)
 
-    def _load_selected_template(self) -> None:
-        tid = self._template.currentData()
-        if not tid:
-            QMessageBox.information(self, "賽馬分析", "請先選擇要取出的範本。")
-            return
-        tpl = get_template(self._config.data_dir, str(tid))
-        if not tpl:
-            QMessageBox.warning(self, "賽馬分析", "找不到該範本。")
-            self._reload_templates()
-            return
-        self._apply_prefs_dict(template_as_prefs(tpl))
-        self._persist_prefs()
-        self._status(f"已取出範本：{tpl.get('name')}")
+    def _restore_session_meeting(self, prefs: dict) -> None:
+        """還原賽日／場次（在 meetings 清單已載入後呼叫）。"""
+        rd = str(prefs.get("race_date") or "").strip()
+        rc = str(prefs.get("racecourse") or "").strip()
+        if rd and rc:
+            for i in range(self._meeting.count()):
+                data = self._meeting.itemData(i)
+                if data and str(data[0]) == rd and str(data[1]) == rc:
+                    if self._meeting.currentIndex() != i:
+                        self._loading = True
+                        self._meeting.setCurrentIndex(i)
+                        self._loading = False
+                        self._on_meeting_changed(preserve_title=True)
+                    break
+        race_no = prefs.get("race_no")
+        if race_no is not None and str(race_no).strip() != "":
+            try:
+                want = int(race_no)
+            except (TypeError, ValueError):
+                want = None
+            if want is not None:
+                idx = self._race_no.findData(want)
+                if idx >= 0:
+                    self._race_no.setCurrentIndex(idx)
+        title = str(prefs.get("title") or "").strip()
+        if title:
+            self._title.setText(title)
 
     def _save_as_template(self) -> None:
         cur_name = ""
@@ -368,9 +450,7 @@ class RaceAnalysisPanel(QWidget):
         except Exception as exc:  # noqa: BLE001
             QMessageBox.warning(self, "賽馬分析", f"儲存範本失敗：{exc}")
             return
-        self._reload_templates(select_id=str(saved.get("id")))
-        QMessageBox.information(self, "賽馬分析", f"已儲存範本：{saved.get('name')}")
-        self._status(f"已儲存範本：{saved.get('name')}")
+        self._reload_templates(select_id=str(saved.get("id")), apply=False)
 
     def _delete_selected_template(self) -> None:
         tid = self._template.currentData()
@@ -382,7 +462,7 @@ class RaceAnalysisPanel(QWidget):
         if ans != QMessageBox.StandardButton.Yes:
             return
         if delete_template(self._config.data_dir, str(tid)):
-            self._reload_templates()
+            self._reload_templates(select_id=None, apply=True)
             self._status(f"已刪除範本：{name}")
         else:
             QMessageBox.warning(self, "賽馬分析", "刪除失敗。")
@@ -416,6 +496,8 @@ class RaceAnalysisPanel(QWidget):
     def _reload_meetings(self) -> None:
         self._loading = True
         cur = self._meeting.currentData()
+        prev_race = self._race_no.currentData()
+        prev_title = self._title.text().strip()
         self._meeting.clear()
         for date, course in list_stored_racecard_meetings(self._config):
             label = f"{date}　{course}"
@@ -426,14 +508,21 @@ class RaceAnalysisPanel(QWidget):
                     self._meeting.setCurrentIndex(i)
                     break
         self._loading = False
-        self._on_meeting_changed()
+        self._on_meeting_changed(preserve_title=True)
+        if prev_race is not None:
+            idx = self._race_no.findData(prev_race)
+            if idx >= 0:
+                self._race_no.setCurrentIndex(idx)
+        if prev_title:
+            self._title.setText(prev_title)
         if self._meeting.count() == 0:
             self._status("尚無排位賽日，請先下載排位資料")
 
-    def _on_meeting_changed(self) -> None:
+    def _on_meeting_changed(self, *_args, preserve_title: bool = False) -> None:
         if self._loading:
             return
         data = self._meeting.currentData()
+        prev_race = self._race_no.currentData()
         self._race_no.clear()
         if not data:
             return
@@ -453,13 +542,18 @@ class RaceAnalysisPanel(QWidget):
                 self._race_no.addItem(f"第{no}場", no)
         finally:
             conn.close()
-        self._title.setText(
-            suggest_command_title(
-                race_date=race_date,
-                race_no=None,
-                all_races=True,
+        if prev_race is not None:
+            idx = self._race_no.findData(prev_race)
+            if idx >= 0:
+                self._race_no.setCurrentIndex(idx)
+        if not preserve_title:
+            self._title.setText(
+                suggest_command_title(
+                    race_date=race_date,
+                    race_no=None,
+                    all_races=True,
+                )
             )
-        )
 
     def _selected_columns(self) -> list[str]:
         return parse_columns_text(self._fields.toPlainText())
@@ -495,7 +589,7 @@ class RaceAnalysisPanel(QWidget):
 
     def _append_condition_row(
         self, row: ConditionRow | None = None, *, resize: bool = True
-    ) -> None:
+    ) -> int:
         row = row or ConditionRow(True, "custom", "", "")
         r = self._table.rowCount()
         self._table.insertRow(r)
@@ -525,6 +619,7 @@ class RaceAnalysisPanel(QWidget):
         self._table.setItem(r, 2, scoring)
         if resize:
             self._resize_condition_columns()
+        return r
 
     def _on_kind_changed(self, row: int) -> None:
         combo = self._table.cellWidget(row, 1)
@@ -541,7 +636,15 @@ class RaceAnalysisPanel(QWidget):
             item.setText(DEFAULT_SCORING.get(kind, ""))
 
     def _add_condition_row(self) -> None:
-        self._append_condition_row(ConditionRow(True, "custom", "", ""))
+        r = self._append_condition_row(ConditionRow(True, "custom", "", ""))
+        if r is None:
+            return
+        self._table.setCurrentCell(r, 2)
+        self._table.scrollToItem(
+            self._table.item(r, 2),
+            QAbstractItemView.ScrollHint.EnsureVisible,
+        )
+        self._table.editItem(self._table.item(r, 2))
 
     def _remove_condition_row(self) -> None:
         row = self._table.currentRow()

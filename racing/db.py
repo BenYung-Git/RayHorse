@@ -9,6 +9,7 @@ from .models import RaceRecord
 from .schema import (
     ai_schema_sql,
     core_schema_sql,
+    football_schema_sql,
     racecard_base_schema_sql,
     racecard_starters_schema_sql,
 )
@@ -92,6 +93,7 @@ def init_db(db_path: Path) -> None:
         conn.executescript(racecard_starters_schema_sql())
         conn.executescript(ai_schema_sql())
         conn.executescript(challenge_kings_schema_sql())
+        conn.executescript(football_schema_sql())
         ensure_racecard_starters_columns(conn)
         # Migration: add new race_records columns for richer fields.
         rr_cols = conn.execute("PRAGMA table_info(race_records);").fetchall()
@@ -104,6 +106,10 @@ def init_db(db_path: Path) -> None:
             conn.execute("ALTER TABLE race_records ADD COLUMN handicap TEXT NOT NULL DEFAULT '';")
         if "place_odds" not in rr_names:
             conn.execute("ALTER TABLE race_records ADD COLUMN place_odds TEXT NOT NULL DEFAULT '';")
+        if "sectional_time" not in rr_names:
+            conn.execute(
+                "ALTER TABLE race_records ADD COLUMN sectional_time TEXT NOT NULL DEFAULT '';"
+            )
 
         # Migration: add brand_no for existing DBs (before creating index on it).
         cols = conn.execute("PRAGMA table_info(horses);").fetchall()
@@ -123,6 +129,28 @@ def init_db(db_path: Path) -> None:
         _migrate_race_record_pos_draw_99(conn)
         # Migration: 往績誤把「場地狀況」寫入 venue → 依 course／文字還原 ST/HV/FC
         _migrate_race_record_venue_codes(conn)
+        # 清除表頭誤入（如 HorseId="Brand No."）等不可用馬匹列
+        _purge_unacceptable_horses(conn)
+
+
+def _purge_unacceptable_horses(conn: sqlite3.Connection) -> None:
+    """刪除 horse_id 不可接受的馬匹列及其往績（例如誤抓的 Brand No. 表頭）。"""
+
+    rows = conn.execute("SELECT horse_id FROM horses;").fetchall()
+    bad = [
+        str(r["horse_id"] or "").strip()
+        for r in rows
+        if not is_acceptable_horse_id(str(r["horse_id"] or ""))
+    ]
+    if not bad:
+        return
+    for hid in bad:
+        conn.execute("DELETE FROM race_records WHERE horse_id = ?;", (hid,))
+        conn.execute("DELETE FROM horses WHERE horse_id = ?;", (hid,))
+
+
+def _filter_acceptable_horse_rows(rows: list[sqlite3.Row]) -> list[sqlite3.Row]:
+    return [r for r in rows if is_acceptable_horse_id(str(r["horse_id"] or ""))]
 
 
 def _migrate_race_record_dates_yyyy_mm_dd(conn: sqlite3.Connection) -> None:
@@ -216,6 +244,7 @@ _RACE_MERGE_FIELDS = (
     "prize",
     "handicap",
     "place_odds",
+    "sectional_time",
 )
 
 
@@ -365,7 +394,7 @@ def upsert_race_records(db_path: Path, records: Iterable[RaceRecord]) -> int:
         for rec in pending:
             horse_id = _filled(rec.horse_id)
             race_date = normalize_date_yyyy_mm_dd(_filled(rec.race_date))
-            if not horse_id or not race_date:
+            if not horse_id or not race_date or not is_acceptable_horse_id(horse_id):
                 continue
             incoming = {
                 "horse_id": horse_id,
@@ -387,6 +416,7 @@ def upsert_race_records(db_path: Path, records: Iterable[RaceRecord]) -> int:
                 "prize": _filled(rec.prize),
                 "handicap": _filled(getattr(rec, "handicap", "")),
                 "place_odds": _filled(getattr(rec, "place_odds", "")),
+                "sectional_time": _filled(getattr(rec, "sectional_time", "")),
             }
             existing = conn.execute(
                 """
@@ -403,10 +433,10 @@ def upsert_race_records(db_path: Path, records: Iterable[RaceRecord]) -> int:
                     INSERT INTO race_records (
                       horse_id, race_date, venue, race_no, course, distance, going, class_band, draw,
                       rating, jockey, trainer, finish_pos, running_pos, win_odds, time, prize,
-                      handicap, place_odds
+                      handicap, place_odds, sectional_time
                     ) VALUES (
                       ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                     );
                     """,
                     (
@@ -429,6 +459,7 @@ def upsert_race_records(db_path: Path, records: Iterable[RaceRecord]) -> int:
                         incoming["prize"],
                         incoming["handicap"],
                         incoming["place_odds"],
+                        incoming["sectional_time"],
                     ),
                 )
                 written += 1
@@ -462,7 +493,7 @@ def fetch_race_records(db_path: Path, horse_id: str) -> list[RaceRecord]:
             SELECT
               horse_id, race_date, venue, race_no, course, distance, going, class_band,
               draw, rating, jockey, trainer, finish_pos, running_pos, win_odds, time, prize,
-              handicap, place_odds
+              handicap, place_odds, sectional_time
             FROM race_records
             WHERE horse_id = ?
             ORDER BY race_date DESC, id DESC;
@@ -490,6 +521,9 @@ def fetch_race_records(db_path: Path, horse_id: str) -> list[RaceRecord]:
                 prize=row["prize"],
                 handicap=row["handicap"] if "handicap" in row.keys() else "",
                 place_odds=row["place_odds"] if "place_odds" in row.keys() else "",
+                sectional_time=(
+                    row["sectional_time"] if "sectional_time" in row.keys() else ""
+                ),
             )
             for row in cur.fetchall()
         ]
@@ -707,13 +741,16 @@ def search_horses_by_name(
     params: tuple[object, ...] = (like, like, f"%{kw}%")
     if limit is not None:
         query += " LIMIT ?;"
-        params = (*params, limit)
+        params = (*params, max(limit * 3, limit + 20))
     else:
         query += ";"
 
     with get_connection(db_path) as conn:
         cur = conn.execute(query, params)
-        return list(cur.fetchall())
+        rows = _filter_acceptable_horse_rows(list(cur.fetchall()))
+        if limit is not None:
+            return rows[:limit]
+        return rows
 
 
 def search_horses_by_keyword(
@@ -755,24 +792,29 @@ def search_horses_by_keyword(
         exact,
         exact,
     )
+    # 先多取再過濾表頭誤入列，避免 LIMIT 後數量不足
     if limit is not None:
         query += " LIMIT ?;"
-        params = (*params, limit)
+        params = (*params, max(limit * 3, limit + 20))
     else:
         query += ";"
 
     with get_connection(db_path) as conn:
         cur = conn.execute(query, params)
-        return list(cur.fetchall())
+        rows = _filter_acceptable_horse_rows(list(cur.fetchall()))
+        if limit is not None:
+            return rows[:limit]
+        return rows
 
 
 def count_horses(db_path: Path) -> int:
     """Count horses currently stored in the local database."""
 
     with get_connection(db_path) as conn:
-        cur = conn.execute("SELECT COUNT(*) AS c FROM horses;")
-        row = cur.fetchone()
-        return int(row["c"]) if row else 0
+        rows = conn.execute("SELECT horse_id FROM horses;").fetchall()
+        return sum(
+            1 for r in rows if is_acceptable_horse_id(str(r["horse_id"] or ""))
+        )
 
 
 def get_horse_status(db_path: Path, horse_id: str) -> str:
@@ -794,7 +836,7 @@ def fetch_horse_by_id(db_path: Path, horse_id: str) -> sqlite3.Row | None:
     """Return one horses row by horse_id, or None if not found."""
 
     hid = str(horse_id or "").strip()
-    if not hid:
+    if not hid or not is_acceptable_horse_id(hid):
         return None
     with get_connection(db_path) as conn:
         cur = conn.execute(
@@ -824,12 +866,15 @@ def fetch_horses(db_path: Path, limit: int | None = 200) -> list[sqlite3.Row]:
         params: tuple[object, ...] = ()
         if limit is not None:
             query += " LIMIT ?;"
-            params = (limit,)
+            params = (max(limit * 3, limit + 20),)
         else:
             query += ";"
 
         cur = conn.execute(query, params)
-        return list(cur.fetchall())
+        rows = _filter_acceptable_horse_rows(list(cur.fetchall()))
+        if limit is not None:
+            return rows[:limit]
+        return rows
 
 
 def search_race_records_by_keyword(

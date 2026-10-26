@@ -26,4 +26,5 @@ class RaceRecord:
     prize: str
     handicap: str = ""
     place_odds: str = ""
+    sectional_time: str = ""
 

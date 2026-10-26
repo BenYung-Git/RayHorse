@@ -20,6 +20,12 @@ from .web_utils import format_two_digit_99
 COURSE_CODE_TO_NAME = {"ST": "沙田", "HV": "跑馬地", "FC": "從化"}
 COURSE_NAME_TO_CODE = {name: code for code, name in COURSE_CODE_TO_NAME.items()}
 
+# 馬會「分段時間及位置」頁（段速）
+SECTIONAL_TIME_URL = (
+    "https://racing.hkjc.com/zh-hk/local/information/displaysectionaltime"
+)
+_SECTION_TIME_RE = re.compile(r"\d+\.\d{2}")
+
 
 def infer_venue_code(venue: str, course: str = "") -> str:
     """從 venue／course 推斷 ST/HV/FC。"""
@@ -95,10 +101,59 @@ def _display_meeting_race_no(
     return format_two_digit_99(raw)
 
 
+def _format_form_rating(raw: object) -> str:
+    """與馬匹往績相同：純數字評分去掉小數位／前導零。"""
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    if re.fullmatch(r"\d+(\.0+)?", text):
+        return str(int(float(text)))
+    return text
+
+
+def _lookup_form_rating(
+    conn,
+    *,
+    horse_id: str,
+    race_date: str,
+    venue_code: str = "",
+) -> str:
+    """從 race_records（馬匹往績）取該馬該賽日評分；日期格式差異可對上。"""
+    from .web_utils import normalize_date_yyyy_mm_dd
+
+    hid = (horse_id or "").strip()
+    want = normalize_date_yyyy_mm_dd(race_date)
+    if not hid or not want:
+        return ""
+    code = (venue_code or "").strip().upper()
+    rows = conn.execute(
+        """
+        SELECT race_date, venue, course, rating
+        FROM race_records
+        WHERE horse_id = ?
+          AND rating IS NOT NULL
+          AND TRIM(rating) != '';
+        """,
+        (hid,),
+    ).fetchall()
+    for row in rows:
+        if normalize_date_yyyy_mm_dd(row["race_date"]) != want:
+            continue
+        if code:
+            inferred = infer_venue_code(str(row["venue"] or ""), str(row["course"] or ""))
+            if inferred and inferred != code:
+                continue
+        return _format_form_rating(row["rating"])
+    return ""
+
+
 def fetch_results_rows(
     db_path: Path, race_date: str, racecourse_code: str
 ) -> list[dict[str, str]]:
-    """讀取指定賽日／場地的賽果列（含馬名／馬號）；場次以當日 01、02… 顯示，場次由大至小。"""
+    """讀取指定賽日／場地的賽果列（含馬名／馬號）；場次以當日 01、02… 顯示，場次由大至小。
+
+    「評分」一律取馬匹往績 race_records.rating，不用排位表評分。
+    """
     init_db(db_path)
     rd = _normalize_meeting_date(race_date)
     code = (racecourse_code or "").strip().upper()
@@ -114,6 +169,7 @@ def fetch_results_rows(
               COALESCE(rr.handicap, '') AS handicap,
               COALESCE(rr.running_pos, '') AS running_pos,
               COALESCE(rr.place_odds, '') AS place_odds,
+              COALESCE(rr.sectional_time, '') AS sectional_time,
               COALESCE(h.name_zh, '') AS name_zh,
               COALESCE(h.brand_no, '') AS brand_no,
               (
@@ -133,61 +189,60 @@ def fetch_results_rows(
                   AND UPPER(TRIM(rs.racecourse)) = ?
                 ORDER BY rs.race_no
                 LIMIT 1
-              ) AS horse_no,
-              (
-                SELECT COALESCE(rs."評分", '')
-                FROM racecard_starters AS rs
-                WHERE rs.horse_id = rr.horse_id
-                  AND (rs.race_date = rr.race_date OR rs.race_date = ?)
-                  AND UPPER(TRIM(rs.racecourse)) = ?
-                ORDER BY rs.race_no
-                LIMIT 1
-              ) AS card_rating
+              ) AS horse_no
             FROM race_records AS rr
             LEFT JOIN horses AS h ON h.horse_id = rr.horse_id
             WHERE rr.race_date = ?
             ORDER BY rr.id
             """,
-            (rd_dash, code, rd_dash, code, rd_dash, code, rd),
+            (rd_dash, code, rd_dash, code, rd),
         ).fetchall()
-    filtered = []
-    for r in rows:
-        inferred = infer_venue_code(str(r["venue"] or ""), str(r["course"] or ""))
-        if inferred != code:
-            continue
-        filtered.append(r)
-    season_map = _season_race_to_meeting_map(
-        [str(r["race_no"] or "").strip() for r in filtered]
-    )
-    out: list[dict[str, str]] = []
-    for r in filtered:
-        race_disp = _display_meeting_race_no(
-            r["race_no"], r["meeting_race_no"], season_map
+        filtered = []
+        for r in rows:
+            inferred = infer_venue_code(str(r["venue"] or ""), str(r["course"] or ""))
+            if inferred != code:
+                continue
+            filtered.append(r)
+        season_map = _season_race_to_meeting_map(
+            [str(r["race_no"] or "").strip() for r in filtered]
         )
-        horse_no = str(r["horse_no"] or "").strip()
-        class_band = str(r["class_band"] or "").strip()
-        rating = str(r["rating"] or "").strip() or str(r["card_rating"] or "").strip()
-        out.append(
-            {
-                "race_no": race_disp,
-                "finish_pos": format_two_digit_99(r["finish_pos"]),
-                "horse_no": format_two_digit_99(horse_no) if horse_no else "",
-                "name_zh": str(r["name_zh"] or ""),
-                "brand_no": str(r["brand_no"] or ""),
-                "jockey": str(r["jockey"] or ""),
-                "trainer": str(r["trainer"] or ""),
-                "class_band": class_band,
-                "rating": rating,
-                "handicap": str(r["handicap"] or "").strip(),
-                "draw": format_two_digit_99(r["draw"]),
-                "running_pos": str(r["running_pos"] or "").strip(),
-                "time": str(r["time"] or ""),
-                "win_odds": str(r["win_odds"] or ""),
-                "place_odds": str(r["place_odds"] or ""),
-                "distance": str(r["distance"] or ""),
-                "horse_id": str(r["horse_id"] or ""),
-            }
-        )
+        out: list[dict[str, str]] = []
+        for r in filtered:
+            race_disp = _display_meeting_race_no(
+                r["race_no"], r["meeting_race_no"], season_map
+            )
+            horse_no = str(r["horse_no"] or "").strip()
+            class_band = str(r["class_band"] or "").strip()
+            rating = _format_form_rating(r["rating"])
+            if not rating:
+                rating = _lookup_form_rating(
+                    conn,
+                    horse_id=str(r["horse_id"] or ""),
+                    race_date=rd,
+                    venue_code=code,
+                )
+            out.append(
+                {
+                    "race_no": race_disp,
+                    "finish_pos": format_two_digit_99(r["finish_pos"]),
+                    "horse_no": format_two_digit_99(horse_no) if horse_no else "",
+                    "name_zh": str(r["name_zh"] or ""),
+                    "brand_no": str(r["brand_no"] or ""),
+                    "jockey": str(r["jockey"] or ""),
+                    "trainer": str(r["trainer"] or ""),
+                    "class_band": class_band,
+                    "rating": rating,
+                    "handicap": str(r["handicap"] or "").strip(),
+                    "draw": format_two_digit_99(r["draw"]),
+                    "running_pos": str(r["running_pos"] or "").strip(),
+                    "time": str(r["time"] or ""),
+                    "win_odds": str(r["win_odds"] or ""),
+                    "place_odds": str(r["place_odds"] or ""),
+                    "sectional_time": str(r["sectional_time"] or "").strip(),
+                    "distance": str(r["distance"] or ""),
+                    "horse_id": str(r["horse_id"] or ""),
+                }
+            )
     # 場次由大至小；同場內按名次由小至大
     out.sort(
         key=lambda row: (
@@ -197,7 +252,249 @@ def fetch_results_rows(
             row["horse_id"],
         )
     )
+    # 舊賽果未存段速時，自動補抓一次並寫回
+    if out and not any(str(r.get("sectional_time") or "").strip() for r in out):
+        try:
+            _enrich_sectional_times_for_meeting(db_path, rd, code, out)
+        except Exception:
+            pass
     return out
+
+
+def _enrich_sectional_times_for_meeting(
+    db_path: Path,
+    race_date: str,
+    racecourse_code: str,
+    rows: list[dict[str, str]],
+) -> None:
+    """為當日賽果補段速（記憶體列＋資料庫）。"""
+    by_race: dict[str, list[dict[str, str]]] = {}
+    for row in rows:
+        rn = format_two_digit_99(row.get("race_no"))
+        if not rn:
+            continue
+        by_race.setdefault(rn, []).append(row)
+    updates: list[tuple[str, str, str, str]] = []
+    for rn, race_rows in by_race.items():
+        sec_map = fetch_sectional_times_for_race(race_date, racecourse_code, rn)
+        if not sec_map:
+            continue
+        for row in race_rows:
+            hno = str(row.get("horse_no") or "").strip()
+            if not re.fullmatch(r"\d{1,2}", hno):
+                continue
+            sec = sec_map.get(str(int(hno)), "")
+            if not sec:
+                continue
+            row["sectional_time"] = sec
+            hid = str(row.get("horse_id") or "").strip()
+            if hid:
+                updates.append((sec, hid, race_date, racecourse_code))
+    if not updates:
+        return
+    with get_connection(db_path) as conn:
+        for sec, hid, rd, venue in updates:
+            conn.execute(
+                """
+                UPDATE race_records
+                SET sectional_time = ?
+                WHERE horse_id = ?
+                  AND race_date = ?
+                  AND UPPER(TRIM(venue)) = ?
+                  AND (sectional_time IS NULL OR TRIM(sectional_time) = '');
+                """,
+                (sec, hid, rd, venue.upper()),
+            )
+
+
+def list_results_race_nos(rows: list[dict[str, str]]) -> list[str]:
+    """由賽果列抽出當日場次（01…），由小至大。"""
+    seen: set[str] = set()
+    out: list[str] = []
+    for row in rows:
+        raw = str(row.get("race_no") or "").strip()
+        if not raw or not re.fullmatch(r"\d+", raw):
+            continue
+        rn = format_two_digit_99(raw)
+        if not rn or rn in seen:
+            continue
+        seen.add(rn)
+        out.append(rn)
+    out.sort(key=_race_no_sort_key)
+    return out
+
+
+def _finish_place_int(raw: object) -> int | None:
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    m = re.search(r"(\d+)", text)
+    if not m:
+        return None
+    try:
+        n = int(m.group(1))
+    except ValueError:
+        return None
+    return n if 1 <= n <= 99 else None
+
+
+# 負磅分組（磅）
+_HANDICAP_GROUP_DEFS: list[tuple[str, Callable[[float], bool]]] = [
+    ("<110磅", lambda x: x < 110),
+    (">=110及<120磅", lambda x: 110 <= x < 120),
+    (">=120及<130磅", lambda x: 120 <= x < 130),
+    (">=130磅", lambda x: x >= 130),
+]
+
+# 賠率分組（獨贏）。需求文案寫「4組」但列出五個區間（第2組重複編號），依區間實作。
+_ODDS_GROUP_DEFS: list[tuple[str, Callable[[float], bool]]] = [
+    ("<=3", lambda x: x <= 3),
+    (">3及<=10", lambda x: 3 < x <= 10),
+    (">10及<=20", lambda x: 10 < x <= 20),
+    (">20及<=40", lambda x: 20 < x <= 40),
+    (">40", lambda x: x > 40),
+]
+
+
+def _parse_positive_number(raw: object) -> float | None:
+    """從負磅／賠率字串取出第一個正數；無法解析則 None。"""
+    text = str(raw or "").strip().replace(",", "")
+    if not text:
+        return None
+    m = re.search(r"(\d+(?:\.\d+)?)", text)
+    if not m:
+        return None
+    try:
+        val = float(m.group(1))
+    except ValueError:
+        return None
+    if val < 0:
+        return None
+    return val
+
+
+def _handicap_group_label(raw: object) -> str | None:
+    lbs = _parse_positive_number(raw)
+    if lbs is None:
+        return None
+    for label, pred in _HANDICAP_GROUP_DEFS:
+        if pred(lbs):
+            return label
+    return None
+
+
+def _odds_group_label(raw: object) -> str | None:
+    odds = _parse_positive_number(raw)
+    if odds is None:
+        return None
+    for label, pred in _ODDS_GROUP_DEFS:
+        if pred(odds):
+            return label
+    return None
+
+
+def summarize_top3_stats(
+    rows: list[dict[str, str]],
+) -> dict[str, list[dict[str, str | int]]]:
+    """
+    當天跑入 1–3 名的統計：練馬師／騎師／檔位／負磅組／賠率組。
+    回傳各表列含 name、wins、seconds、thirds；全部按第1名場次（wins）由大至小。
+    """
+
+    def _bucket(key_field: str) -> dict[str, dict[str, int]]:
+        acc: dict[str, dict[str, int]] = {}
+        for row in rows:
+            place = _finish_place_int(row.get("finish_pos"))
+            if place is None or place > 3:
+                continue
+            name = str(row.get(key_field) or "").strip()
+            if not name:
+                continue
+            item = acc.setdefault(name, {"wins": 0, "seconds": 0, "thirds": 0})
+            if place == 1:
+                item["wins"] += 1
+            elif place == 2:
+                item["seconds"] += 1
+            else:
+                item["thirds"] += 1
+        return acc
+
+    def _bucket_by_label(
+        label_fn, *, preset_labels: list[str]
+    ) -> dict[str, dict[str, int]]:
+        acc: dict[str, dict[str, int]] = {
+            label: {"wins": 0, "seconds": 0, "thirds": 0} for label in preset_labels
+        }
+        for row in rows:
+            place = _finish_place_int(row.get("finish_pos"))
+            if place is None or place > 3:
+                continue
+            name = label_fn(row)
+            if not name:
+                continue
+            item = acc.setdefault(name, {"wins": 0, "seconds": 0, "thirds": 0})
+            if place == 1:
+                item["wins"] += 1
+            elif place == 2:
+                item["seconds"] += 1
+            else:
+                item["thirds"] += 1
+        return acc
+
+    def _sorted_rows(
+        acc: dict[str, dict[str, int]],
+        *,
+        numeric_name: bool = False,
+        fixed_order: list[str] | None = None,
+    ) -> list[dict[str, str | int]]:
+        items = list(acc.items())
+        order_index = (
+            {name: i for i, name in enumerate(fixed_order)} if fixed_order else {}
+        )
+        items.sort(
+            key=lambda kv: (
+                -kv[1]["wins"],
+                -kv[1]["seconds"],
+                -kv[1]["thirds"],
+                order_index.get(kv[0], 999) if fixed_order else 0,
+                _race_no_sort_key(kv[0]) if numeric_name else 0,
+                kv[0],
+            )
+        )
+        out: list[dict[str, str | int]] = []
+        for name, c in items:
+            out.append(
+                {
+                    "name": name,
+                    "wins": c["wins"],
+                    "seconds": c["seconds"],
+                    "thirds": c["thirds"],
+                }
+            )
+        return out
+
+    handicap_labels = [label for label, _ in _HANDICAP_GROUP_DEFS]
+    odds_labels = [label for label, _ in _ODDS_GROUP_DEFS]
+
+    return {
+        "trainers": _sorted_rows(_bucket("trainer")),
+        "jockeys": _sorted_rows(_bucket("jockey")),
+        "draws": _sorted_rows(_bucket("draw"), numeric_name=True),
+        "handicaps": _sorted_rows(
+            _bucket_by_label(
+                lambda r: _handicap_group_label(r.get("handicap")),
+                preset_labels=handicap_labels,
+            ),
+            fixed_order=handicap_labels,
+        ),
+        "odds": _sorted_rows(
+            _bucket_by_label(
+                lambda r: _odds_group_label(r.get("win_odds")),
+                preset_labels=odds_labels,
+            ),
+            fixed_order=odds_labels,
+        ),
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -487,6 +784,86 @@ def _parse_result_rows(html: str) -> list[dict[str, str]]:
     return out
 
 
+def _meeting_date_dd_mm_yyyy(race_date: str) -> str:
+    """yyyy/MM/dd → dd/MM/yyyy（displaysectionaltime 參數格式）。"""
+    from .web_utils import normalize_date_yyyy_mm_dd
+
+    nd = normalize_date_yyyy_mm_dd(race_date)
+    m = re.fullmatch(r"(\d{4})/(\d{2})/(\d{2})", nd)
+    if not m:
+        return ""
+    return f"{m.group(3)}/{m.group(2)}/{m.group(1)}"
+
+
+def _section_cell_primary_time(cell: str) -> str:
+    """分段格取主段時間（第一個 xx.xx；後面為 200 米細分）。"""
+    times = _SECTION_TIME_RE.findall(str(cell or ""))
+    return times[0] if times else ""
+
+
+def _parse_sectional_times_by_horse_no(html: str) -> dict[str, str]:
+    """
+    解析 displaysectionaltime：馬號 → 段速字串（各段主時間以「 / 」連接）。
+    例：23.57 / 22.15 / 22.69
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    out: dict[str, str] = {}
+    for table in soup.find_all("table"):
+        rows = table.find_all("tr")
+        if len(rows) < 4:
+            continue
+        header_blob = " ".join(
+            c.get_text(" ", strip=True) for c in rows[0].find_all(["th", "td"])
+        )
+        if "馬號" not in header_blob or "完成時間" not in header_blob:
+            continue
+        for tr in rows[1:]:
+            cells = [c.get_text(" ", strip=True) for c in tr.find_all(["td", "th"])]
+            if len(cells) < 5:
+                continue
+            horse_no = str(cells[1] or "").strip()
+            if not re.fullmatch(r"\d{1,2}", horse_no):
+                continue
+            # 欄：次序、馬號、馬名、第1–6段、完成時間
+            section_cells = cells[3:-1] if len(cells) >= 10 else cells[3:]
+            parts = [
+                _section_cell_primary_time(c)
+                for c in section_cells
+                if str(c or "").strip()
+            ]
+            parts = [p for p in parts if p]
+            if not parts:
+                continue
+            out[str(int(horse_no))] = " / ".join(parts)
+        if out:
+            break
+    return out
+
+
+def fetch_sectional_times_for_race(
+    race_date: str,
+    racecourse_code: str,
+    race_no: int | str,
+) -> dict[str, str]:
+    """抓取一場分段時間；回傳馬號（去前導零）→ 段速。"""
+    dd = _meeting_date_dd_mm_yyyy(race_date)
+    code = (racecourse_code or "").strip().upper()
+    try:
+        rn = int(str(race_no).strip())
+    except ValueError:
+        return {}
+    if not dd or not code or rn <= 0:
+        return {}
+    try:
+        html = _fetch_html(
+            SECTIONAL_TIME_URL,
+            {"racedate": dd, "Racecourse": code, "RaceNo": rn},
+        )
+    except Exception:
+        return {}
+    return _parse_sectional_times_by_horse_no(html)
+
+
 def _fetch_html(url: str, params: dict[str, str | int] | None = None) -> str:
     resp = requests.get(url, params=params, timeout=30)
     resp.raise_for_status()
@@ -583,6 +960,32 @@ def download_race_results(
     all_records: list[RaceRecord] = []
     skipped = 0
     total_steps = len(race_nos)
+    # 預載該賽日往績評分，供賽果寫入時帶入（賽果頁本身無評分欄）
+    form_rating_by_horse: dict[str, str] = {}
+    try:
+        with get_connection(db_path) as conn:
+            from .web_utils import normalize_date_yyyy_mm_dd
+
+            want = normalize_date_yyyy_mm_dd(meeting.racedate)
+            for fr in conn.execute(
+                """
+                SELECT horse_id, race_date, venue, course, rating
+                FROM race_records
+                WHERE rating IS NOT NULL AND TRIM(rating) != '';
+                """
+            ):
+                if normalize_date_yyyy_mm_dd(fr["race_date"]) != want:
+                    continue
+                inferred = infer_venue_code(
+                    str(fr["venue"] or ""), str(fr["course"] or "")
+                )
+                if inferred and inferred != meeting.racecourse_code:
+                    continue
+                hid0 = str(fr["horse_id"] or "").strip()
+                if hid0 and hid0 not in form_rating_by_horse:
+                    form_rating_by_horse[hid0] = _format_form_rating(fr["rating"])
+    except Exception:
+        form_rating_by_horse = {}
     for idx, race_no in enumerate(race_nos, start=1):
         if should_cancel and should_cancel():
             break
@@ -610,6 +1013,9 @@ def download_race_results(
                 continue
         meta = _parse_race_meta(html, race_no)
         rows = _parse_result_rows(html)
+        sectional_by_no = fetch_sectional_times_for_race(
+            meeting.racedate, meeting.racecourse_code, race_no
+        )
         for row in rows:
             hid = _resolve_horse_id(
                 db_path,
@@ -622,6 +1028,10 @@ def download_race_results(
                 continue
             # 勝出馬匹獎金：僅第一名寫入總獎金（其餘留空）
             prize = meta["prize"] if str(row["finish_pos"]).lstrip("0") == "1" or row["finish_pos"] == "1" else ""
+            hno_key = ""
+            hno_raw = str(row.get("horse_no") or "").strip()
+            if re.fullmatch(r"\d{1,2}", hno_raw):
+                hno_key = str(int(hno_raw))
             all_records.append(
                 RaceRecord(
                     horse_id=hid,
@@ -633,7 +1043,7 @@ def download_race_results(
                     going=meta["going"],
                     class_band=meta["class_band"],
                     draw=row["draw"],
-                    rating="",
+                    rating=form_rating_by_horse.get(hid, ""),
                     jockey=row["jockey"],
                     trainer=row["trainer"],
                     finish_pos=row["finish_pos"],
@@ -643,6 +1053,7 @@ def download_race_results(
                     prize=prize,
                     handicap=row.get("handicap", ""),
                     place_odds=row.get("place_odds", ""),
+                    sectional_time=sectional_by_no.get(hno_key, ""),
                 )
             )
         if progress:

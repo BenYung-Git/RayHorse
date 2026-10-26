@@ -155,24 +155,22 @@ def _parse_standings_rows(html: str) -> list[dict[str, str | int]]:
             continue
         if "實際數目" in joined:
             continue
-        # 分段標題：# 其他騎師／# 其他練馬師
+        # 分段標題：# 其他騎師／# 其他練馬師（整段略過，不入庫）
         if len(cells) <= 2 and re.search(r"#?\s*其他", joined):
             in_other = True
+            continue
+        if in_other:
             continue
         if len(cells) < 3:
             continue
         # 正規列：編號, 姓名, 積分, 冠, 亞, 季, 殿, 備註?
         entry_no = cells[0].strip()
         name = cells[1].strip() if len(cells) > 1 else ""
-        # 其他組細項：編號空白
         if not name and len(cells) >= 3 and not entry_no:
             continue
-        if re.search(r"#?\s*其他", name):
-            # 彙總列「# 其他騎師」仍寫入，並標記 other
-            is_other = 1
-            name = re.sub(r"^#\s*", "", name).strip()
-        else:
-            is_other = 1 if in_other else 0
+        # 彙總列「# 其他騎師／# 其他練馬師」不寫入
+        if re.search(r"#?\s*其他", name) or name.startswith("其他"):
+            continue
         if not name:
             continue
         points = cells[2] if len(cells) > 2 else ""
@@ -191,7 +189,7 @@ def _parse_standings_rows(html: str) -> list[dict[str, str | int]]:
                 "thirds": thirds,
                 "fourths": fourths,
                 "remark": remark,
-                "is_other": is_other,
+                "is_other": 0,
             }
         )
     return out
@@ -209,6 +207,14 @@ def _upsert_standings(
     written = 0
     with get_connection(db_path) as conn:
         conn.executescript(challenge_kings_schema_sql())
+        # 清掉舊版曾寫入的「其他騎師／其他練馬師」列
+        conn.execute(
+            """
+            DELETE FROM challenge_standings
+            WHERE is_other = 1
+               OR TRIM(COALESCE(person_name, '')) LIKE '其他%'
+            """
+        )
         conn.execute(
             """
             DELETE FROM challenge_standings
@@ -413,7 +419,9 @@ def fetch_season_point_totals(
             WHERE challenge_type = ?
               AND race_date >= ?
               AND race_date <= ?
+              AND COALESCE(is_other, 0) = 0
               AND TRIM(COALESCE(person_name, '')) <> ''
+              AND person_name NOT LIKE '其他%'
             GROUP BY person_name
             """,
             (challenge_type, start, through),
@@ -456,8 +464,9 @@ def fetch_challenge_standings(
                    fourths, remark, is_other, updated_at
             FROM challenge_standings
             WHERE challenge_type = ? AND race_date = ?
+              AND COALESCE(is_other, 0) = 0
+              AND person_name NOT LIKE '其他%'
             ORDER BY {expr} DESC,
-                     is_other ASC,
                      CASE WHEN entry_no GLOB '[0-9]*' THEN CAST(entry_no AS INTEGER) ELSE 9999 END,
                      entry_no ASC,
                      person_name ASC
@@ -476,7 +485,7 @@ def fetch_challenge_standings(
                 "thirds": r["thirds"] or "",
                 "fourths": r["fourths"] or "",
                 "remark": r["remark"] or "",
-                "is_other": int(r["is_other"] or 0),
+                "is_other": 0,
                 "updated_at": r["updated_at"] or "",
             }
         )
@@ -513,8 +522,9 @@ def fetch_season_standings(
             WHERE challenge_type = ?
               AND race_date >= ?
               AND race_date <= ?
+              AND COALESCE(is_other, 0) = 0
               AND TRIM(COALESCE(person_name, '')) <> ''
-              AND person_name NOT LIKE '其他%%'
+              AND person_name NOT LIKE '其他%'
             GROUP BY person_name
             ORDER BY total_points DESC, person_name ASC
             """,

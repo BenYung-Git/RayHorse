@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
 
 
 MENU_FONT_PT = 13
-# 側欄需容納最長項目「騎師王-練馬師王」完整顯示
+# 側欄需容納最長項目「香港足球賠率/賽果」「英超足球賠率/賽果」完整顯示
 _SIDE_MENU_ICON_PX = 28
 _SIDE_MENU_PAD_PX = 56
 
@@ -46,6 +46,16 @@ MAIN_MENU_ITEMS: tuple[MainMenuItem, ...] = (
     MainMenuItem("racecard", "排位", QStyle.StandardPixmap.SP_FileDialogListView),
     MainMenuItem("results", "賽馬結果", QStyle.StandardPixmap.SP_FileDialogDetailedView),
     MainMenuItem("kings", "騎師王-練馬師王", QStyle.StandardPixmap.SP_DialogApplyButton),
+    MainMenuItem(
+        "football",
+        "香港足球賠率/賽果",
+        QStyle.StandardPixmap.SP_ComputerIcon,
+    ),
+    MainMenuItem(
+        "football_epl",
+        "英超足球賠率/賽果",
+        QStyle.StandardPixmap.SP_ComputerIcon,
+    ),
     MainMenuItem("analysis", "賽馬分析", QStyle.StandardPixmap.SP_FileDialogInfoView),
     MainMenuItem("horses", "馬匹-往績", QStyle.StandardPixmap.SP_DirHomeIcon),
     MainMenuItem("backup", "備份資料庫", QStyle.StandardPixmap.SP_DialogSaveButton),
@@ -57,7 +67,9 @@ MAIN_MENU_ITEM_COLORS: dict[str, tuple[str, str]] = {
     "racecard": ("#78350f", "#fde68a"),
     "results": ("#831843", "#fbcfe8"),
     "kings": ("#4c1d95", "#ddd6fe"),
-    "analysis": ("#1e3a8a", "#bfdbfe"),
+    "football": ("#134e4a", "#ccfbf1"),
+    "football_epl": ("#1e3a5f", "#bfdbfe"),
+    "analysis": ("#1e3a8a", "#dbeafe"),
     "horses": ("#14532d", "#bbf7d0"),
     "backup": ("#9a3412", "#fdba74"),
     "download": ("#155e75", "#a5f3fc"),
@@ -176,8 +188,9 @@ class MainMenuPanel(QWidget):
         # imagelist 兩欄時略加寬；其餘單欄以最長文字為準
         if imagelist:
             side_w = max(side_w, 280)
+        # 預設寬度足夠顯示最長標題；上限放寬以利使用者拖曳側欄調整
         self.setMinimumWidth(side_w)
-        self.setMaximumWidth(side_w + 40)
+        self.setMaximumWidth(max(side_w + 220, 520))
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
 
     def _rebuild(self) -> None:

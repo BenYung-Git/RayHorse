@@ -1,4 +1,4 @@
-"""背景下載：馬匹／往績、排位、即時賠率、賽馬結果、騎師王／練馬師王（進度由呼叫端顯示於狀態列）。"""
+"""背景下載：馬匹／往績、排位、即時賠率、賽馬結果、騎師王／練馬師王、足球賠率／賽果（進度由呼叫端顯示於狀態列）。"""
 
 from __future__ import annotations
 
@@ -12,6 +12,11 @@ from ..challenge_kings import (
 from ..config import AppConfig
 from ..db import fetch_horses, upsert_race_records
 from ..download_sources import horse_pp_template
+from ..football import (
+    download_epl_schedule_results,
+    download_football_odds,
+    download_football_results,
+)
 from ..race_results import download_race_results
 from ..scraper import scrape_horse_past_performance, update_horses_table_from_web
 from .racecard_rank_viewer import (
@@ -36,6 +41,9 @@ class DownloadWorker(QObject):
         do_results: bool = False,
         do_jockey_king: bool = False,
         do_trainer_king: bool = False,
+        do_football_odds: bool = False,
+        do_football_results: bool = False,
+        do_epl: bool = False,
     ) -> None:
         super().__init__()
         self._config = config
@@ -46,6 +54,9 @@ class DownloadWorker(QObject):
         self._do_results = do_results
         self._do_jockey_king = do_jockey_king
         self._do_trainer_king = do_trainer_king
+        self._do_football_odds = do_football_odds
+        self._do_football_results = do_football_results
+        self._do_epl = do_epl
         self._cancelled = False
 
     def cancel(self) -> None:
@@ -81,6 +92,21 @@ class DownloadWorker(QObject):
                     return
             if self._do_trainer_king:
                 parts.append(self._download_trainer_king())
+                if self._cancelled:
+                    self.finished_error.emit("已取消。")
+                    return
+            if self._do_football_odds:
+                parts.append(self._download_football_odds())
+                if self._cancelled:
+                    self.finished_error.emit("已取消。")
+                    return
+            if self._do_football_results:
+                parts.append(self._download_football_results())
+                if self._cancelled:
+                    self.finished_error.emit("已取消。")
+                    return
+            if self._do_epl:
+                parts.append(self._download_epl())
                 if self._cancelled:
                     self.finished_error.emit("已取消。")
                     return
@@ -185,3 +211,36 @@ class DownloadWorker(QObject):
             should_cancel=lambda: self._cancelled,
         )
         return format_challenge_stats(stats)
+
+    def _download_football_odds(self) -> str:
+        self.progress_changed.emit(0, 0)
+        self.stage_changed.emit("正在下載足球賠率…")
+        stats = download_football_odds(
+            self._config.db_path,
+            data_dir=self._config.data_dir,
+            progress=lambda msg: self.stage_changed.emit(msg),
+            should_cancel=lambda: self._cancelled,
+        )
+        return stats.message
+
+    def _download_football_results(self) -> str:
+        self.progress_changed.emit(0, 0)
+        self.stage_changed.emit("正在下載足球賽果…")
+        stats = download_football_results(
+            self._config.db_path,
+            data_dir=self._config.data_dir,
+            progress=lambda msg: self.stage_changed.emit(msg),
+            should_cancel=lambda: self._cancelled,
+        )
+        return stats.message
+
+    def _download_epl(self) -> str:
+        self.progress_changed.emit(0, 0)
+        self.stage_changed.emit("正在下載英超賽程/賽果…")
+        stats = download_epl_schedule_results(
+            self._config.db_path,
+            data_dir=self._config.data_dir,
+            progress=lambda msg: self.stage_changed.emit(msg),
+            should_cancel=lambda: self._cancelled,
+        )
+        return stats.message

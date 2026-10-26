@@ -23,6 +23,10 @@ def _start_web_app_server(*, open_browser: bool = False) -> None:
     from werkzeug.serving import make_server
 
     from racing.web_app import app as flask_app
+    from racing.web_app import _ensure_download_scheduler
+
+    # both 模式不走 web_app.main()，必須在此啟動間隔下載排程
+    _ensure_download_scheduler()
 
     server = make_server("0.0.0.0", 800, flask_app, threaded=True)
 

@@ -19,7 +19,16 @@
   --current-cell-text: #ffffff;
   --alt-row: #f3f8ff;
   --status-bg: #e3eefb;
-  --menu-font: 13pt;
+  /* 字級（可由工具列 +/- 調整；基準 10pt） */
+  --ui-font-pt: 10pt;
+  --ui-font-sm: 9pt;
+  --ui-font-lg: 11pt;
+  --ui-font-xl: 12pt;
+  --ui-font-menu: 13pt;
+  --menu-font: var(--ui-font-menu);
+  --grid-data-pt: var(--ui-font-pt);
+  --grid-header-pt: var(--ui-font-lg);
+  --grid-row-h: 24px;
 }
 
 html {
@@ -28,6 +37,7 @@ html {
 body.hppv-desktop {
   margin: 0;
   font-family: "Microsoft JhengHei", "Segoe UI", sans-serif;
+  font-size: var(--ui-font-pt);
   background: var(--win-bg);
   color: var(--text);
   height: 100dvh;
@@ -38,6 +48,18 @@ body.hppv-desktop {
 }
 
 /* 主選單列（對齊 Windows QMenuBar） */
+.font-size-btn {
+  min-width: 28px;
+  padding: 2px 8px;
+  font-weight: 700;
+}
+.font-size-label {
+  min-width: 40px;
+  text-align: center;
+  font-weight: 700;
+  color: var(--label);
+  user-select: none;
+}
 .menubar {
   display: flex;
   flex-wrap: wrap;
@@ -45,7 +67,7 @@ body.hppv-desktop {
   background: var(--panel-bg);
   border-bottom: 1px solid var(--border);
   padding: 2px 4px;
-  font-size: 13pt;
+  font-size: var(--ui-font-menu);
   font-weight: 700;
   min-height: 28px;
   align-items: center;
@@ -63,7 +85,7 @@ body.hppv-desktop {
   background: transparent;
   border: none;
   color: var(--label);
-  font-size: 13pt;
+  font-size: var(--ui-font-menu);
   font-weight: 700;
   padding: 6px 12px;
   cursor: pointer;
@@ -100,15 +122,15 @@ body.hppv-desktop {
   border: none;
   background: transparent;
   padding: 6px 18px;
-  font-size: 12pt;
+  font-size: var(--ui-font-xl);
   font-weight: 600;
   color: var(--text);
   cursor: pointer;
   white-space: nowrap;
 }
-/* 「主選單」內項目：對齊 Windows 13pt 粗體 + 圖示；完整顯示長標題 */
+/* 「主選單」內項目：粗體 + 圖示；完整顯示長標題 */
 .menubar .dropdown button.main-menu-item {
-  font-size: 13pt;
+  font-size: var(--ui-font-menu);
   font-weight: 700;
   min-height: 32px;
   white-space: nowrap;
@@ -146,7 +168,7 @@ body.hppv-desktop {
 }
 .menubar .menu-sep {
   padding: 8px 18px 4px;
-  font-size: 11pt;
+  font-size: var(--ui-font-lg);
   font-weight: 700;
   color: var(--label);
   opacity: 0.85;
@@ -161,7 +183,7 @@ body.hppv-desktop {
   border: none;
   background: transparent;
   padding: 6px 18px 6px 28px;
-  font-size: 12pt;
+  font-size: var(--ui-font-xl);
   font-weight: 600;
   color: var(--text);
   cursor: pointer;
@@ -192,7 +214,7 @@ body.hppv-desktop {
   align-items: center;
   gap: 8px;
   font-weight: 700;
-  font-size: 13pt;
+  font-size: var(--ui-font-menu);
   min-height: 34px;
   padding: 4px 12px;
   border: 1px solid transparent;
@@ -260,7 +282,7 @@ body.hppv-desktop {
   overflow: auto;
   padding: 4px 8px 8px;
   color: var(--text);
-  font-size: 10.5pt;
+  font-size: var(--ui-font-pt);
 }
 .dl-line {
   display: flex;
@@ -369,8 +391,8 @@ body.hppv-desktop {
   background: var(--input-bg);
   color: var(--text);
   font: inherit;
-  font-size: 10pt;
-  line-height: 20px;
+  font-size: var(--ui-font-pt);
+  line-height: 1.35;
   height: 22px;
   padding: 0 4px;
   margin: 0;
@@ -490,7 +512,7 @@ body.hppv-desktop {
   font-weight: 700;
   padding: 2px 4px;
   white-space: nowrap;
-  font-size: 11pt;
+  font-size: var(--ui-font-lg);
 }
 .toolbar .field-label {
   white-space: nowrap;
@@ -510,8 +532,8 @@ body.hppv-desktop {
   border-radius: 4px;
   padding: 3px 10px;
   min-height: 22px;
-  max-height: 28px;
-  font-size: 10pt;
+  max-height: none;
+  font-size: var(--ui-font-pt);
   font-weight: 600;
   cursor: pointer;
 }
@@ -531,19 +553,21 @@ body.hppv-desktop {
 }
 
 label.field-label {
-  font-size: 12pt;
+  font-size: var(--ui-font-xl);
   font-weight: 700;
   color: var(--label);
   text-align: right;
 }
 
 input[type="text"],
-select {
+select,
+textarea {
   background: var(--input-bg);
   border: 1px solid var(--border);
   border-radius: 4px;
   padding: 4px 6px;
   color: var(--text);
+  font-size: var(--ui-font-pt);
 }
 input[type="text"]:focus,
 select:focus {
@@ -557,23 +581,24 @@ select:focus {
   min-height: 0;
   overflow: hidden;
 }
-/* 側欄主選單（對齊 Windows MainMenuPanel；寬度足以顯示「騎師王-練馬師王」） */
+/* 側欄主選單：預設足以顯示「香港／英超足球賠率/賽果」，可拖曳右緣調整寬度 */
 .side-menu {
-  width: 13.5em;
-  max-width: 360px;
-  min-width: 13.5em;
+  width: 16.5em;
+  max-width: 420px;
+  min-width: 16.5em;
   border-right: 1px solid var(--border);
   background: var(--panel-bg);
   padding: 4px;
   overflow: auto;
   box-sizing: border-box;
+  resize: horizontal;
 }
 .side-menu.hidden {
   display: none !important;
 }
 .side-menu h3 {
   margin: 4px 4px 6px;
-  font-size: 14pt;
+  font-size: var(--ui-font-menu);
   font-weight: 700;
   color: var(--label);
 }
@@ -592,7 +617,7 @@ select:focus {
   padding: 6px 8px;
   margin: 0;
   cursor: pointer;
-  font-size: 13pt;
+  font-size: var(--ui-font-menu);
   font-weight: 700;
   color: var(--text);
   border-radius: 0;
@@ -613,13 +638,17 @@ select:focus {
 .menu-racecard { background: #fde68a !important; color: #78350f !important; }
 .menu-results { background: #fbcfe8 !important; color: #831843 !important; }
 .menu-kings { background: #ddd6fe !important; color: #4c1d95 !important; }
-.menu-analysis { background: #bfdbfe !important; color: #1e3a8a !important; }
+.menu-football { background: #ccfbf1 !important; color: #134e4a !important; }
+.menu-football-epl { background: #bfdbfe !important; color: #1e3a5f !important; }
+.menu-analysis { background: #dbeafe !important; color: #1e3a8a !important; }
 .menu-horses { background: #bbf7d0 !important; color: #14532d !important; }
 .menu-backup { background: #fdba74 !important; color: #9a3412 !important; }
 .menu-download { background: #a5f3fc !important; color: #155e75 !important; }
 .menubar .dropdown button.main-menu-item.menu-racecard:hover,
 .menubar .dropdown button.main-menu-item.menu-results:hover,
 .menubar .dropdown button.main-menu-item.menu-kings:hover,
+.menubar .dropdown button.main-menu-item.menu-football:hover,
+.menubar .dropdown button.main-menu-item.menu-football-epl:hover,
 .menubar .dropdown button.main-menu-item.menu-analysis:hover,
 .menubar .dropdown button.main-menu-item.menu-horses:hover,
 .menubar .dropdown button.main-menu-item.menu-backup:hover,
@@ -627,6 +656,8 @@ select:focus {
 .side-menu .side-item.menu-racecard:hover,
 .side-menu .side-item.menu-results:hover,
 .side-menu .side-item.menu-kings:hover,
+.side-menu .side-item.menu-football:hover,
+.side-menu .side-item.menu-football-epl:hover,
 .side-menu .side-item.menu-analysis:hover,
 .side-menu .side-item.menu-horses:hover,
 .side-menu .side-item.menu-backup:hover,
@@ -634,6 +665,8 @@ select:focus {
 .toolbar-main .toolbar-menu-btn.menu-racecard:hover,
 .toolbar-main .toolbar-menu-btn.menu-results:hover,
 .toolbar-main .toolbar-menu-btn.menu-kings:hover,
+.toolbar-main .toolbar-menu-btn.menu-football:hover,
+.toolbar-main .toolbar-menu-btn.menu-football-epl:hover,
 .toolbar-main .toolbar-menu-btn.menu-analysis:hover,
 .toolbar-main .toolbar-menu-btn.menu-horses:hover,
 .toolbar-main .toolbar-menu-btn.menu-backup:hover,
@@ -643,6 +676,8 @@ select:focus {
 .side-menu .side-item.menu-racecard,
 .side-menu .side-item.menu-results,
 .side-menu .side-item.menu-kings,
+.side-menu .side-item.menu-football,
+.side-menu .side-item.menu-football-epl,
 .side-menu .side-item.menu-analysis,
 .side-menu .side-item.menu-horses,
 .side-menu .side-item.menu-backup,
@@ -653,6 +688,8 @@ select:focus {
 .toolbar-main .toolbar-menu-btn.menu-racecard,
 .toolbar-main .toolbar-menu-btn.menu-results,
 .toolbar-main .toolbar-menu-btn.menu-kings,
+.toolbar-main .toolbar-menu-btn.menu-football,
+.toolbar-main .toolbar-menu-btn.menu-football-epl,
 .toolbar-main .toolbar-menu-btn.menu-analysis,
 .toolbar-main .toolbar-menu-btn.menu-horses,
 .toolbar-main .toolbar-menu-btn.menu-backup,
@@ -663,6 +700,8 @@ select:focus {
 .menubar .dropdown button.main-menu-item.menu-racecard,
 .menubar .dropdown button.main-menu-item.menu-results,
 .menubar .dropdown button.main-menu-item.menu-kings,
+.menubar .dropdown button.main-menu-item.menu-football,
+.menubar .dropdown button.main-menu-item.menu-football-epl,
 .menubar .dropdown button.main-menu-item.menu-horses,
 .menubar .dropdown button.main-menu-item.menu-backup,
 .menubar .dropdown button.main-menu-item.menu-download {
@@ -673,16 +712,16 @@ select:focus {
 
 /* TreeView：根「功能選單」+ 縮排子項 */
 .side-menu.treeview {
-  width: 14em;
-  max-width: 360px;
-  min-width: 14em;
+  width: 17em;
+  max-width: 420px;
+  min-width: 17em;
 }
 .side-menu .tree-item,
 .side-menu .tree-root-label {
   white-space: nowrap;
 }
 .side-menu .tree-root-label {
-  font-size: 13pt;
+  font-size: var(--ui-font-menu);
   font-weight: 700;
   color: var(--label);
   padding: 6px 8px;
@@ -691,22 +730,22 @@ select:focus {
   padding-left: 12px;
 }
 .side-menu .tree-item {
-  font-size: 13pt;
+  font-size: var(--ui-font-menu);
   font-weight: 700;
   min-height: 32px;
 }
 
 /* ListView：單欄列表，28px 圖示 */
 .side-menu.listview {
-  width: 14em;
-  max-width: 360px;
-  min-width: 14em;
+  width: 17em;
+  max-width: 420px;
+  min-width: 17em;
 }
 .side-menu.listview #sideItems {
   gap: 4px;
 }
 .side-menu.listview .side-item {
-  font-size: 13pt;
+  font-size: var(--ui-font-menu);
   min-height: 36px;
   padding: 4px 8px;
 }
@@ -735,7 +774,7 @@ select:focus {
   justify-content: flex-start;
   align-items: center;
   text-align: center;
-  font-size: 12pt;
+  font-size: var(--ui-font-xl);
   font-weight: 700;
   min-height: 88px;
   padding: 10px 6px;
@@ -776,6 +815,7 @@ select:focus {
   padding: 8px 10px 8px 14px;
   border: 1px solid var(--border);
   background: var(--header-bg);
+  font-size: var(--ui-font-lg);
   font-weight: 700;
   cursor: pointer;
   border-radius: 8px 8px 0 0;
@@ -812,19 +852,36 @@ select:focus {
 .tabbar#mainTabs .tab.tab-results.active { background: #db2777; color: #fff; }
 .tabbar#mainTabs .tab.tab-kings { background: #ddd6fe; color: #4c1d95; }
 .tabbar#mainTabs .tab.tab-kings.active { background: #7c3aed; color: #fff; }
+.tabbar#mainTabs .tab.tab-football { background: #ccfbf1; color: #134e4a; }
+.tabbar#mainTabs .tab.tab-football.active { background: #0d9488; color: #fff; }
+.tabbar#mainTabs .tab.tab-football-epl { background: #bfdbfe; color: #1e3a5f; }
+.tabbar#mainTabs .tab.tab-football-epl.active { background: #2563eb; color: #fff; }
+#footballOddsMatchGrid tbody tr.row-selected td,
+#footballEplOddsMatchGrid tbody tr.row-selected td {
+  background: #99f6e4;
+}
 .tabbar#mainTabs .tab.tab-analysis { background: #bfdbfe; color: #1e3a8a; }
 .tabbar#mainTabs .tab.tab-analysis.active { background: #2563eb; color: #fff; }
 #panel-analysis {
   overflow: auto;
+  font-size: var(--ui-font-pt);
+}
+#panel-analysis .btn,
+#panel-analysis .field-label,
+#panel-analysis select,
+#panel-analysis input,
+#panel-analysis textarea,
+#panel-analysis table.hppv-grid {
+  font-size: var(--ui-font-pt);
 }
 #panel-analysis .analysis-layout {
   display: flex;
   flex-direction: row;
   align-items: flex-start;
-  gap: 14px;
+  gap: 10px;
   width: 100%;
   min-height: 0;
-  padding: 8px 4px 16px;
+  padding: 6px 4px 12px;
   box-sizing: border-box;
 }
 #panel-analysis .analysis-form {
@@ -849,6 +906,8 @@ select:focus {
   width: 100%;
   justify-content: flex-start;
   white-space: nowrap;
+  padding: 4px 8px;
+  font-size: var(--ui-font-pt);
 }
 #panel-analysis .analysis-fields-text {
   width: 100%;
@@ -989,7 +1048,7 @@ select.grow {
   font-weight: 700;
   color: var(--label);
   white-space: nowrap;
-  font-size: 11pt;
+  font-size: var(--ui-font-lg);
 }
 
 /* 對齊 Windows：上方馬匹 Grid、下方明細分頁各約一半 */
@@ -1034,6 +1093,7 @@ select.grow {
 }
 #panel-kings .kings-title {
   text-align: center;
+  font-size: var(--ui-font-lg);
   font-weight: 700;
   padding: 2px 0;
   color: var(--text);
@@ -1046,6 +1106,29 @@ select.grow {
   max-height: calc(25px * 6 + 40px) !important;
   overflow-x: auto !important;
   overflow-y: auto !important;
+}
+/* 足球賽果：不含標題可視 15 列，超過出現捲軸 */
+#panel-football .football-results-grid-pane,
+#panel-football_epl .football-results-grid-pane {
+  flex: 0 0 auto !important;
+  height: calc(25px * 15 + 40px) !important;
+  min-height: calc(25px * 15 + 40px) !important;
+  max-height: calc(25px * 15 + 40px) !important;
+  overflow-x: auto !important;
+  overflow-y: auto !important;
+}
+/* 足球表格：欄寬可拖曳調整 */
+table.football-data-grid thead th {
+  position: relative;
+}
+table.football-data-grid thead th .col-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  user-select: none;
 }
 .horses-grid-pane {
   flex: 0 0 auto;
@@ -1082,23 +1165,125 @@ select.grow {
   min-height: 0;
   overflow: hidden;
 }
+/* 勿在 #panel-racecard 設 display：ID 會蓋過 .panel{display:none} */
+#panel-racecard {
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+#panel-racecard > .search-row,
+#panel-racecard > #racecardTabs {
+  flex: 0 0 auto;
+}
+/* 上方排位區約 60%、下方往績約 40% */
+#panel-racecard .racecard-main-pane {
+  flex: 3 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
 #panel-racecard .race-info-frame {
-  flex: 0 1 auto;
-  max-height: 22%;
+  flex: 0 0 auto;
+  max-height: 28%;
   overflow: auto;
 }
 #panel-racecard .racecard-grid-pane {
-  flex: 0 0 auto;
-  height: calc(25px * 12 + 40px);
-  min-height: calc(25px * 12 + 40px);
-  max-height: calc(25px * 12 + 40px);
-  overflow: auto;
+  flex: 1 1 0 !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  overflow: auto !important;
 }
-#panel-results .grid-wrap {
+#panel-racecard .racecard-form-pane {
+  flex: 2 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+#panel-racecard .racecard-form-title {
+  flex: 0 0 auto;
+  font-size: var(--ui-font-lg);
+  font-weight: 700;
+  padding: 2px 0;
+  color: var(--text);
+}
+#panel-racecard .racecard-form-grid {
+  flex: 1 1 0 !important;
+  min-height: 0 !important;
+  height: auto !important;
+  max-height: none !important;
+  overflow: auto !important;
+}
+/* 勿在此設 display：ID 選擇器會蓋過 .panel{display:none}，導致賽果面板疊在其他分頁上 */
+#panel-results {
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+#panel-results > .search-row {
+  flex: 0 0 auto;
+}
+/* 賽果 GRID 與下方統計約 50/50；統計區至少能顯示 5～6 列 */
+#panel-results .results-grid-pane {
+  flex: 1 1 0 !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  overflow-x: auto !important;
+  overflow-y: auto !important;
+}
+#panel-results .results-stats-area {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1 1 0;
+  min-height: 220px;
+}
+#panel-results .results-stats-tabbar {
+  flex: 0 0 auto;
+}
+#panel-results .results-stats-tab-pane {
+  display: none;
   flex: 1 1 0;
   min-height: 0;
-  height: auto;
-  overflow: auto;
+  flex-direction: column;
+}
+#panel-results .results-stats-tab-pane.active {
+  display: flex;
+  min-height: 180px;
+}
+#panel-results .results-stats-split {
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  flex: 1 1 0;
+  min-height: 160px;
+  align-items: stretch;
+}
+#panel-results .results-stats-pane {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+}
+#panel-results .results-stats-title {
+  text-align: center;
+  font-size: var(--ui-font-lg);
+  font-weight: 700;
+  padding: 2px 0;
+  color: var(--text);
+  flex: 0 0 auto;
+}
+#panel-results .results-stats-grid {
+  flex: 1 1 0 !important;
+  min-height: calc(24px * 6 + 40px) !important;
+  height: auto !important;
+  max-height: none !important;
+  overflow: auto !important;
 }
 #panel-horses table.hppv-grid td,
 #panel-racecard table.hppv-grid td,
@@ -1198,7 +1383,7 @@ select.grow {
 .form-grid .field-label {
   text-align: right;
   margin: 0;
-  font-size: 12pt;
+  font-size: var(--ui-font-xl);
   font-weight: 700;
   color: var(--label);
 }
@@ -1206,7 +1391,7 @@ select.grow {
 input.form-field {
   width: 100%;
   min-height: 28px;
-  font-size: 11pt;
+  font-size: var(--ui-font-lg);
   background: var(--input-bg);
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -1226,7 +1411,7 @@ input.form-field:focus {
 /* AI 助手（對齊 Windows AiAssistantPanel） */
 .ai-hint {
   margin: 0 0 6px;
-  font-size: 11pt;
+  font-size: var(--ui-font-lg);
 }
 .ai-chat {
   flex: 1 1 0;
@@ -1237,7 +1422,7 @@ input.form-field:focus {
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 10px 12px;
-  font-size: 11pt;
+  font-size: var(--ui-font-lg);
   line-height: 1.45;
 }
 .ai-chat p {
@@ -1247,7 +1432,7 @@ input.form-field:focus {
   font-weight: 700;
   color: var(--label);
   margin: 8px 0 4px;
-  font-size: 11pt;
+  font-size: var(--ui-font-lg);
 }
 .ai-grid-pane {
   flex: 1 1 0;
@@ -1263,20 +1448,30 @@ input.form-field:focus {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  min-width: 118px;
+  flex: 0 0 var(--ai-side-btn-w, 118px);
+  width: var(--ai-side-btn-w, 118px);
+  min-width: var(--ai-side-btn-w, 118px);
 }
 .ai-btn-col .btn {
+  width: 100%;
+  box-sizing: border-box;
   max-height: none;
   min-height: 28px;
   justify-content: flex-start;
   white-space: nowrap;
+}
+#btnAiSave {
+  width: var(--ai-side-btn-w, 118px);
+  min-width: var(--ai-side-btn-w, 118px);
+  box-sizing: border-box;
+  justify-content: flex-start;
 }
 .ai-prompt {
   flex: 1;
   min-height: calc(1.35em * 5 + 12px);
   max-height: calc(1.35em * 5 + 12px);
   resize: none;
-  font-size: 11pt;
+  font-size: var(--ui-font-lg);
   line-height: 1.35;
   font-family: "Microsoft JhengHei", "Segoe UI", sans-serif;
   background: var(--input-bg);
@@ -1300,7 +1495,7 @@ input.form-field:focus {
 .ai-status {
   margin-top: 4px;
   min-height: 1.2em;
-  font-size: 11pt;
+  font-size: var(--ui-font-lg);
   color: var(--label);
 }
 .ai-dialog.task-settings-dialog {
@@ -1396,7 +1591,8 @@ input.form-field:focus {
   flex: 1 1 auto;
 }
 #panel-ai {
-  gap: 0;
+  --ai-side-btn-w: 118px;
+  gap: 6px;
   min-height: 0;
   overflow: hidden;
 }
@@ -1406,21 +1602,39 @@ input.form-field:focus {
 #panel-ai .ai-status {
   flex: 0 0 auto;
 }
-#panel-ai .ai-input-row {
-  flex: 0 1 auto;
-  min-height: 0;
-  height: calc(1.35em * 5 + 12px);
-  max-height: calc(1.35em * 5 + 12px);
-}
-#panel-ai .ai-prompt {
-  height: 100%;
-  min-height: 0;
-  max-height: none;
+/* 對話區與報表 GRID 需保留足夠高度，避免被輸入列擠壓而顯示不全 */
+#panel-ai .ai-chat {
+  flex: 2 1 0;
+  min-height: 110px;
+  overflow: auto;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
 }
 #panel-ai .ai-grid-pane {
-  flex: 1 1 0;
-  min-height: 0;
+  flex: 3 1 0 !important;
+  min-height: 140px !important;
+  height: auto !important;
+  max-height: none !important;
+  overflow: auto !important;
+}
+#panel-ai .ai-input-row {
+  flex: 0 0 auto;
   height: auto;
+  min-height: calc(1.35em * 5 + 16px);
+  max-height: none;
+  align-items: stretch;
+}
+#panel-ai .ai-prompt {
+  height: calc(1.35em * 5 + 16px);
+  min-height: calc(1.35em * 5 + 16px);
+  max-height: calc(1.35em * 5 + 16px);
+}
+/* AI 報表需顯示完整欄位內容（勿截成 20 字） */
+#panel-ai table.hppv-grid th,
+#panel-ai table.hppv-grid td {
+  max-width: none;
+  text-overflow: clip;
 }
 
 .racecard-grid-pane {
@@ -1439,7 +1653,7 @@ input.form-field:focus {
   grid-template-columns: repeat(4, minmax(0, auto) minmax(0, 1fr));
   column-gap: 10px;
   row-gap: 4px;
-  font-size: 11pt;
+  font-size: var(--ui-font-lg);
 }
 .race-info-frame[hidden] {
   display: none;
@@ -1464,7 +1678,7 @@ table.hppv-grid {
   width: 100%;
   border-collapse: collapse;
   background: var(--panel-bg);
-  font-size: 10pt;
+  font-size: var(--grid-data-pt);
   table-layout: auto;
 }
 table.hppv-grid th {
@@ -1472,8 +1686,8 @@ table.hppv-grid th {
   color: var(--label);
   border: 1px solid var(--border);
   padding: 4px 6px;
-  height: 28px;
-  font-size: 11pt;
+  height: calc(var(--grid-row-h) + 4px);
+  font-size: var(--grid-header-pt);
   font-weight: 700;
   text-align: left;
   white-space: nowrap;
@@ -1485,14 +1699,18 @@ table.hppv-grid th.sorted-asc,
 table.hppv-grid th.sorted-desc {
   color: var(--border-focus);
 }
+table.hppv-grid thead th {
+  cursor: pointer;
+  user-select: none;
+}
 table.hppv-grid td {
   border: 1px solid var(--border);
   padding: 2px 4px;
-  height: 24px;
-  max-height: 24px;
+  height: var(--grid-row-h);
+  max-height: var(--grid-row-h);
   box-sizing: border-box;
-  font-size: 10pt;
-  line-height: 20px;
+  font-size: var(--grid-data-pt);
+  line-height: calc(var(--grid-row-h) - 4px);
   text-align: left;
   white-space: nowrap;
   overflow: hidden;
@@ -1541,7 +1759,7 @@ table.hppv-grid td[contenteditable="true"] {
   background: var(--status-bg);
   border-top: 1px solid var(--border);
   padding: 4px 12px;
-  font-size: 12px;
+  font-size: var(--ui-font-sm);
 }
 
 /* 列印面板：加大，按鈕盡量一行 */
@@ -1562,7 +1780,7 @@ table.hppv-grid td[contenteditable="true"] {
   min-height: 36px;
   max-height: 44px;
   padding: 8px 16px;
-  font-size: 11pt;
+  font-size: var(--ui-font-lg);
   white-space: nowrap;
 }
 

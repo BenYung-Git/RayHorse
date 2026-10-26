@@ -4,8 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Racing｜WEB 介面（對齊 Windows）</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='desktop.css') }}?v=analysis7">
-  <script src="{{ url_for('static', filename='grid_nav.js') }}?v=analysis7" defer></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='desktop.css') }}?v=multisort2">
+  <script src="{{ url_for('static', filename='grid_nav.js') }}?v=multisort2" defer></script>
+  <script src="{{ url_for('static', filename='standard_times.js') }}?v=multisort2"></script>
 </head>
 <body class="hppv-desktop" data-theme="fusion_tech">
   <div class="menubar" id="menubar">
@@ -32,7 +33,6 @@
     <div class="menu">
       <button type="button">介面</button>
       <div class="dropdown">
-        <button type="button" data-action="windows"><span class="mi mi-win"></span>Windows 介面</button>
         <button type="button" data-action="print"><span class="mi mi-print"></span>列印／報表</button>
         <button type="button" data-action="legacy-web"><span class="mi mi-web"></span>舊版 Web Dashboard</button>
         <div class="menu-sep"></div>
@@ -52,8 +52,11 @@
         <option value="4">⑤ 薄霧綠</option>
         <option value="5">⑥ 淡玫瑰粉</option>
       </select>
+      <span class="field-label">字級：</span>
+      <button class="btn font-size-btn" type="button" id="btnFontMinus" title="縮小字級（Ctrl+-）">−</button>
+      <span id="fontSizeLabel" class="font-size-label" title="目前顯示字級；Ctrl+0 還原預設">10pt</span>
+      <button class="btn font-size-btn" type="button" id="btnFontPlus" title="放大字級（Ctrl+=）">+</button>
       <button class="btn" type="button" data-action="print"><span class="mi mi-print"></span>列印</button>
-      <button class="btn" type="button" data-action="windows"><span class="mi mi-win"></span>Windows 介面</button>
     </div>
   </div>
 
@@ -81,13 +84,13 @@
         </div>
         <div class="split-vert">
           <div class="grid-wrap horses-grid-pane">
-            <table class="hppv-grid" data-grid-nav data-record-select="horses" id="horsesGrid">
+            <table class="hppv-grid" data-grid-nav data-multi-sort="off" data-record-select="horses" id="horsesGrid">
               <thead>
                 <tr>
                   <th data-col="0">HorseId</th>
                   <th data-col="1">Brand No.</th>
                   <th data-col="2">Name EN</th>
-                  <th data-col="3" class="sorted-asc">Name ZH ↑</th>
+                  <th data-col="3" class="sorted-asc">Name ZH ↑1</th>
                   <th data-col="4">Status</th>
                 </tr>
               </thead>
@@ -96,10 +99,10 @@
           </div>
           <div class="detail-tabs" id="detailTabs">
             <div class="tabbar detail-tabbar">
-              <button class="tab active" type="button" data-detail="horse">馬匹資料</button>
-              <button class="tab" type="button" data-detail="races">往績</button>
+              <button class="tab" type="button" data-detail="horse">馬匹資料</button>
+              <button class="tab active" type="button" data-detail="races">往績</button>
             </div>
-            <div class="detail-pane active" id="detail-horse">
+            <div class="detail-pane" id="detail-horse">
               <div class="form-grid" id="horseForm">
                 <label class="field-label" for="fldHorseId">HorseId：</label>
                 <input type="text" id="fldHorseId" class="form-field" readonly>
@@ -113,7 +116,7 @@
                 <input type="text" id="fldStatus" class="form-field" readonly>
               </div>
             </div>
-            <div class="detail-pane" id="detail-races">
+            <div class="detail-pane active" id="detail-races">
               <div class="grid-wrap grid-viewport-8">
                 <table class="hppv-grid" data-grid-nav id="racesGrid">
                   <thead><tr id="racesHead"></tr></thead>
@@ -135,12 +138,23 @@
           <select id="racecardMeeting" class="grow" title="選擇資料庫內已有的賽事日期／場地，即時顯示該日排位"></select>
         </div>
         <div id="racecardTabs" class="tabbar"></div>
-        <div id="racecardRaceInfo" class="race-info-frame" hidden></div>
-        <div class="grid-wrap racecard-grid-pane">
-          <table class="hppv-grid" data-grid-nav id="racecardGrid">
-            <thead><tr></tr></thead>
-            <tbody></tbody>
-          </table>
+        <div class="racecard-main-pane">
+          <div id="racecardRaceInfo" class="race-info-frame" hidden></div>
+          <div class="grid-wrap racecard-grid-pane">
+            <table class="hppv-grid" data-grid-nav id="racecardGrid">
+              <thead><tr></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="racecard-form-pane">
+          <div class="racecard-form-title" id="racecardFormTitle">往績（請選擇上方馬匹）</div>
+          <div class="grid-wrap racecard-form-grid">
+            <table class="hppv-grid" data-grid-nav id="racecardFormGrid">
+              <thead><tr id="racecardFormHead"></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </div>
       </section>
 
@@ -148,14 +162,115 @@
         <div class="search-row">
           <label class="field-label" for="resultsMeeting">賽事日期：</label>
           <select id="resultsMeeting" class="grow" title="選擇資料庫內已有的賽事日期／場地"></select>
+          <label class="field-label" for="resultsRace">場次：</label>
+          <select id="resultsRace" title="選擇當天場次；全部則顯示全日"></select>
           <button class="btn" type="button" id="btnReloadResults" title="重新載入目前賽日賽果（不重讀賽日清單）"><span class="mi mi-refresh"></span>重新整理</button>
         </div>
-        <div class="grid-wrap">
+        <div class="grid-wrap results-grid-pane">
           <table class="hppv-grid" data-grid-nav id="resultsGrid">
             <thead>
               <tr>
                 <th>場次</th><th>名次</th><th>馬號</th><th>馬名</th><th>烙號</th><th>班/級別</th><th>評分</th><th>騎師</th>
-                <th>練馬師</th><th>負磅</th><th>檔位</th><th>走位</th><th>完成時間</th><th>獨贏</th><th>位置賠率</th><th>途程</th>
+                <th>練馬師</th><th>負磅</th><th>檔位</th><th>走位</th><th>段速</th><th>完成時間</th><th>獨贏</th><th>位置賠率</th><th>途程</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="results-stats-area">
+          <div class="tabbar results-stats-tabbar">
+            <button class="tab active" type="button" data-results-stats="people">練馬師／騎師／檔位</button>
+            <button class="tab" type="button" data-results-stats="bands">負磅／賠率</button>
+          </div>
+          <div class="results-stats-tab-pane active" id="results-stats-people">
+            <div class="results-stats-split">
+              <div class="results-stats-pane">
+                <div class="results-stats-title">練馬師（1–3名）</div>
+                <div class="grid-wrap results-stats-grid">
+                  <table class="hppv-grid" data-grid-nav id="resultsTrainerStats">
+                    <thead><tr><th>練馬師</th><th>冠</th><th>亞</th><th>季</th></tr></thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+              </div>
+              <div class="results-stats-pane">
+                <div class="results-stats-title">騎師（1–3名）</div>
+                <div class="grid-wrap results-stats-grid">
+                  <table class="hppv-grid" data-grid-nav id="resultsJockeyStats">
+                    <thead><tr><th>騎師</th><th>冠</th><th>亞</th><th>季</th></tr></thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+              </div>
+              <div class="results-stats-pane">
+                <div class="results-stats-title">檔位（1–3名）</div>
+                <div class="grid-wrap results-stats-grid">
+                  <table class="hppv-grid" data-grid-nav id="resultsDrawStats">
+                    <thead><tr><th>檔位</th><th>冠</th><th>亞</th><th>季</th></tr></thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="results-stats-tab-pane" id="results-stats-bands">
+            <div class="results-stats-split">
+              <div class="results-stats-pane">
+                <div class="results-stats-title">負磅（1–3名）</div>
+                <div class="grid-wrap results-stats-grid">
+                  <table class="hppv-grid" data-grid-nav id="resultsHandicapStats">
+                    <thead><tr><th>負磅</th><th>冠</th><th>亞</th><th>季</th></tr></thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+              </div>
+              <div class="results-stats-pane">
+                <div class="results-stats-title">賠率（1–3名）</div>
+                <div class="grid-wrap results-stats-grid">
+                  <table class="hppv-grid" data-grid-nav id="resultsOddsStats">
+                    <thead><tr><th>賠率</th><th>冠</th><th>亞</th><th>季</th></tr></thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-football">
+        <div class="search-row">
+          <label class="field-label" for="footballMeeting">賽事日期：</label>
+          <select id="footballMeeting" class="grow" title="選擇資料庫內已有的香港足球賽日"></select>
+          <button class="btn" type="button" id="btnReloadFootball" title="重新載入目前賽日（不重讀賽日清單）"><span class="mi mi-refresh"></span>重新整理</button>
+        </div>
+        <div class="grid-wrap football-results-grid-pane">
+          <table class="hppv-grid football-data-grid" data-grid-nav id="footballResultsGrid">
+            <thead>
+              <tr>
+                <th>聯賽</th><th>日期</th><th>時間</th><th>主場隊</th><th>客場隊</th>
+                <th>是否中立場地</th><th>入球比率</th><th>半場比率</th>
+                <th>主賠率</th><th>和賠率</th><th>客賠率</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-football_epl">
+        <div class="search-row">
+          <label class="field-label" for="footballEplMeeting">賽事日期：</label>
+          <select id="footballEplMeeting" class="grow" title="選擇資料庫內已有的英超賽日"></select>
+          <button class="btn" type="button" id="btnReloadFootballEpl" title="重新載入目前賽日（不重讀賽日清單）"><span class="mi mi-refresh"></span>重新整理</button>
+        </div>
+        <div class="grid-wrap football-results-grid-pane">
+          <table class="hppv-grid football-data-grid" data-grid-nav id="footballEplResultsGrid">
+            <thead>
+              <tr>
+                <th>聯賽</th><th>日期</th><th>時間</th><th>主場隊</th><th>客場隊</th>
+                <th>是否中立場地</th><th>入球比率</th><th>半場比率</th>
+                <th>主賠率</th><th>和賠率</th><th>客賠率</th>
               </tr>
             </thead>
             <tbody></tbody>
@@ -237,9 +352,7 @@
         <div class="analysis-layout">
           <div class="analysis-form">
             <label class="dl-line">範本
-              <select id="anTemplate" class="grow" title="選擇已儲存的分析範本後按「取出範本」">
-                <option value="">（選擇範本）</option>
-              </select>
+              <select id="anTemplate" class="grow" title="選擇範本即時套用欄位／排序／條件（不含賽日）"></select>
             </label>
             <label class="dl-line">賽事日期／場地
               <select id="anMeeting" class="grow"></select>
@@ -276,10 +389,9 @@
             <label class="dl-line">指令標題 <input type="text" id="anTitle" class="grow" placeholder="製成 AI 指令時使用"></label>
             <label class="analysis-preview-label">指令預覽</label>
             <textarea id="anPreview" class="analysis-preview" rows="6" readonly placeholder="按「預覽指令」產生 AI 指令內容"></textarea>
-            <p class="muted">條件以 GRID 管理。預設三種計分可由本機合計分數引擎直接出表；範本只存欄位／排序／條件，不含賽日。</p>
+            <p class="muted">條件以 GRID 管理。選擇範本會即時套用；範本只存欄位／排序／條件，不含賽日。</p>
           </div>
           <aside class="analysis-actions">
-            <button class="btn" type="button" id="btnAnLoadTpl"><span class="mi mi-list"></span>取出範本</button>
             <button class="btn" type="button" id="btnAnSaveTpl"><span class="mi mi-save"></span>儲存為範本</button>
             <button class="btn" type="button" id="btnAnDelTpl"><span class="mi mi-close"></span>刪除範本</button>
             <button class="btn" type="button" id="btnAnPreview"><span class="mi mi-preview"></span>預覽指令</button>
@@ -302,7 +414,7 @@
       </section>
 
       <section class="panel active" id="panel-ai">
-        <p class="ai-hint muted">對話框為五行。第一行按↑上一指令、最後一行按↓下一指令。Ctrl+Enter 送出。</p>
+        <p class="ai-hint muted">對話框為五行。第一行按↑上一對話、最後一行按↓下一對話。Ctrl+Enter 送出。</p>
         <div id="aiChat" class="ai-chat" aria-live="polite"></div>
         <div class="ai-table-label" id="aiTableLabel">報表／列表</div>
         <div class="grid-wrap ai-grid-pane">
@@ -315,8 +427,8 @@
           <div class="ai-btn-col">
             <button class="btn" type="button" id="btnAiSend"><span class="mi mi-send"></span>送出</button>
             <button class="btn" type="button" id="btnAiCmd"><span class="mi mi-list"></span>選取指令</button>
-            <button class="btn" type="button" id="btnAiCmdPrev" title="放入上一筆已儲存指令（↑）"><span class="mi mi-up"></span>上一指令</button>
-            <button class="btn" type="button" id="btnAiCmdNext" title="放入下一筆已儲存指令（↓）"><span class="mi mi-down"></span>下一指令</button>
+            <button class="btn" type="button" id="btnAiCmdPrev" title="放入上一則已送出的對話（↑）"><span class="mi mi-up"></span>上一對話</button>
+            <button class="btn" type="button" id="btnAiCmdNext" title="放入下一則已送出的對話（↓）"><span class="mi mi-down"></span>下一對話</button>
           </div>
           <textarea id="aiQ" class="ai-prompt" rows="5" placeholder="輸入馬名、編號、問題，或要儲存的指令"></textarea>
         </div>
@@ -378,9 +490,12 @@
               <label class="dl-line"><input type="checkbox" id="dlResults"> 賽馬結果</label>
               <label class="dl-line"><input type="checkbox" id="dlJockeyKing"> 騎師王</label>
               <label class="dl-line"><input type="checkbox" id="dlTrainerKing"> 練馬師王</label>
+              <label class="dl-line"><input type="checkbox" id="dlFootballOdds"> 足球賠率</label>
+              <label class="dl-line"><input type="checkbox" id="dlFootballResults"> 足球賽果</label>
+              <label class="dl-line"><input type="checkbox" id="dlEpl"> 英超賽程/賽果（近1年）</label>
             </div>
           </div>
-          <p class="dl-note">「儲存設定」只保存，不會開始下載。選「每隔一段時間／指定時間」後按「執行」：會立刻下載一次，之後由伺服器自動重複（伺服器需保持開啟）。選「手動執行」則只下載一次。下載中可按「取消所有下載」即時中止。開啟程式時不會補抓已過的指定時間。勾選「排位」時會一併更新即時賠率；只抓賠率可不重抓排位頁。「騎師王／練馬師王」抓取馬會賽日積分榜。資料來源網站請按「網站設定」管理。</p>
+          <p class="dl-note">「儲存設定」只保存，不會開始下載。選「每隔一段時間／指定時間」後按「執行」：會立刻下載一次，之後由伺服器自動重複（伺服器需保持開啟）。選「手動執行」則只下載一次。下載中可按「取消所有下載」即時中止。開啟程式時不會補抓已過的指定時間。勾選「排位」時會一併更新即時賠率；只抓賠率可不重抓排位頁。「騎師王／練馬師王」抓取馬會賽日積分榜。「足球賠率／足球賽果」由馬會足球 GraphQL 下載。「英超賽程/賽果」由 Footylogic 下載近 1 季（約 1 年）賽程／賽果。資料來源網站請按「網站設定」管理。</p>
           <div class="dl-bottom">
             <button class="btn" type="button" id="btnDlSites"><span class="mi mi-web"></span>網站設定</button>
             <button class="btn" type="button" id="btnDlSave"><span class="mi mi-save"></span>儲存設定</button>
@@ -490,15 +605,17 @@
     let selectedHorseId = "";
     let selectHorseSeq = 0;
     let racecardPayload = null;
-    const RACE_COLS = ["日期","場地","場次","跑道/途程","途程","場地狀況","班/級別","檔","評分","騎師","練馬師","負磅","名次","沿途走位","獨贏賠率","時間","獎金","Flag"];
+    const RACE_COLS = ["日期","場地","場次","跑道/途程","途程","場地狀況","班/級別","檔","評分","騎師","練馬師","負磅","名次","沿途走位","段速","獨贏賠率","時間","獎金","Flag"];
     const HORSE_HEADERS = ["HorseId","Brand No.","Name EN","Name ZH","Status"];
-    let horsesSortCol = 3;
-    let horsesSortAsc = true;
+    /* 馬匹 Grid 多欄排序：[{col, asc}, ...]；點表頭重設，Shift+點疊加 */
+    let horsesSortKeys = [{ col: 3, asc: true }];
     /** 對齊 Windows MAIN_MENU_ITEMS 順序與圖示語意 */
     const MAIN_MENU_ITEMS = [
       {a:"racecard", t:"排位", mi:"mi-list", cls:"menu-racecard"},
       {a:"results", t:"賽馬結果", mi:"mi-detail", cls:"menu-results"},
       {a:"kings", t:"騎師王-練馬師王", mi:"mi-report", cls:"menu-kings"},
+      {a:"football", t:"香港足球賠率/賽果", mi:"mi-web", cls:"menu-football"},
+      {a:"football_epl", t:"英超足球賠率/賽果", mi:"mi-web", cls:"menu-football-epl"},
       {a:"analysis", t:"賽馬分析", mi:"mi-info", cls:"menu-analysis"},
       {a:"horses", t:"馬匹-往績", mi:"mi-home", cls:"menu-horses"},
       {a:"backup", t:"備份資料庫", mi:"mi-save", cls:"menu-backup"},
@@ -528,6 +645,19 @@
       if (window.HppvGridNav) window.HppvGridNav.bindAll();
     }
 
+    function openResultsStatsTab(name) {
+      const key = String(name || "").trim();
+      if (!key) return;
+      document.querySelectorAll(".results-stats-tabbar .tab").forEach((b) => {
+        const id = b.getAttribute("data-results-stats") || b.dataset.resultsStats || "";
+        b.classList.toggle("active", id === key);
+      });
+      document.querySelectorAll(".results-stats-tab-pane").forEach((p) =>
+        p.classList.toggle("active", p.id === "results-stats-" + key)
+      );
+      if (window.HppvGridNav) window.HppvGridNav.bindAll();
+    }
+
     function applyTheme(idx) {
       const t = THEMES[idx] || THEMES[0];
       const r = document.documentElement.style;
@@ -553,12 +683,74 @@
       localStorage.setItem("hppv_theme_idx", String(idx));
     }
 
+    const FONT_SIZE_MIN = 8;
+    const FONT_SIZE_MAX = 18;
+    const FONT_SIZE_DEFAULT = 10;
+    let fontSizePt = FONT_SIZE_DEFAULT;
+
+    function clampFontSizePt(raw) {
+      const n = Number(raw);
+      if (!Number.isFinite(n)) return FONT_SIZE_DEFAULT;
+      return Math.max(FONT_SIZE_MIN, Math.min(FONT_SIZE_MAX, Math.round(n)));
+    }
+
+    function applyFontSize(pt, { persist = true } = {}) {
+      fontSizePt = clampFontSizePt(pt);
+      const sm = Math.max(FONT_SIZE_MIN, fontSizePt - 1);
+      const lg = fontSizePt + 1;
+      const xl = fontSizePt + 2;
+      const menu = fontSizePt + 3;
+      const rowH = Math.max(22, fontSizePt + 14);
+      const r = document.documentElement.style;
+      // 整個顯示介面（選單／按鈕／標籤／分頁／GRID）一併縮放
+      r.setProperty("--ui-font-pt", `${fontSizePt}pt`);
+      r.setProperty("--ui-font-sm", `${sm}pt`);
+      r.setProperty("--ui-font-lg", `${lg}pt`);
+      r.setProperty("--ui-font-xl", `${xl}pt`);
+      r.setProperty("--ui-font-menu", `${menu}pt`);
+      r.setProperty("--menu-font", `${menu}pt`);
+      r.setProperty("--grid-data-pt", `${fontSizePt}pt`);
+      r.setProperty("--grid-header-pt", `${lg}pt`);
+      r.setProperty("--grid-row-h", `${rowH}px`);
+      const label = document.getElementById("fontSizeLabel");
+      if (label) label.textContent = `${fontSizePt}pt`;
+      localStorage.setItem("hppv_font_size_pt", String(fontSizePt));
+      if (persist) {
+        fetch("/api/app/ui_prefs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ font_size_pt: fontSizePt }),
+        }).catch(() => {});
+      }
+      setStatus(`字級：${fontSizePt}pt`);
+    }
+
+    function nudgeFontSize(delta) {
+      applyFontSize(fontSizePt + Number(delta || 0));
+    }
+
+    async function initFontSize() {
+      let pt = clampFontSizePt(localStorage.getItem("hppv_font_size_pt") || FONT_SIZE_DEFAULT);
+      try {
+        const res = await fetch("/api/app/ui_prefs");
+        const data = await res.json();
+        if (data && data.ok && data.font_size_pt != null) {
+          pt = clampFontSizePt(data.font_size_pt);
+        }
+      } catch (_err) {
+        /* 用 localStorage */
+      }
+      applyFontSize(pt, { persist: false });
+    }
+
     const TAB_DEFS = {
       ai: {t:"AI 助手", cls:"tab-ai"},
       horses: {t:"馬匹／往績", cls:"tab-horses"},
       racecard: {t:"排位", cls:"tab-racecard"},
       results: {t:"賽馬結果", cls:"tab-results"},
       kings: {t:"騎師王-練馬師王", cls:"tab-kings"},
+      football: {t:"香港足球賠率/賽果", cls:"tab-football"},
+      football_epl: {t:"英超足球賠率/賽果", cls:"tab-football-epl"},
       analysis: {t:"賽馬分析", cls:"tab-analysis"},
       print: {t:"列印／報表", cls:"tab-print"},
       download: {t:"下載資料", cls:"tab-download"},
@@ -593,6 +785,7 @@
     function closeTab(name) {
       const i = openTabs.indexOf(name);
       if (i < 0) return;
+      if (name === "analysis") anPersistSession();
       openTabs.splice(i, 1);
       if (openTabs.length === 0) {
         openTabs = ["ai"];
@@ -605,6 +798,8 @@
 
     function openTab(name, ensureOpen = true) {
       if (!TAB_DEFS[name]) return;
+      const prev = activeTab;
+      if (prev === "analysis" && name !== "analysis") anPersistSession();
       if (ensureOpen && !openTabs.includes(name)) openTabs.push(name);
       activeTab = name;
       renderMainTabs();
@@ -617,6 +812,8 @@
       if (name === "racecard") loadRacecard();
       if (name === "results") loadResults();
       if (name === "kings") loadKings();
+      if (name === "football") loadFootball("hk");
+      if (name === "football_epl") loadFootball("epl");
       if (name === "analysis") loadAnalysisMeta();
       if (name === "download") loadDownloadSources();
       if (window.HppvGridNav) window.HppvGridNav.bindAll();
@@ -682,25 +879,43 @@
     function updateHorseHeaderLabels() {
       document.querySelectorAll("#horsesGrid thead th").forEach((th) => {
         const col = Number(th.dataset.col);
-        let label = HORSE_HEADERS[col] || th.textContent;
+        const base = HORSE_HEADERS[col] || th.textContent;
         th.classList.remove("sorted-asc", "sorted-desc");
-        if (col === horsesSortCol) {
-          label = HORSE_HEADERS[col] + (horsesSortAsc ? " ↑" : " ↓");
-          th.classList.add(horsesSortAsc ? "sorted-asc" : "sorted-desc");
+        const idx = horsesSortKeys.findIndex((k) => k.col === col);
+        if (idx >= 0) {
+          const asc = horsesSortKeys[idx].asc;
+          th.textContent = `${base} ${asc ? "↑" : "↓"}${idx + 1}`;
+          th.classList.add(asc ? "sorted-asc" : "sorted-desc");
+        } else {
+          th.textContent = base;
         }
-        th.textContent = label;
+        th.title = "點選排序；Shift+點選可多欄排序";
+        th.style.cursor = "pointer";
       });
     }
 
     function sortHorseRows(rows) {
-      const keyOf = (r) => {
-        const vals = [r.horse_id, r.brand_no, r.name_en, r.name_zh, r.status];
-        return String(vals[horsesSortCol] || "").toLowerCase();
+      const valsOf = (r) => [r.horse_id, r.brand_no, r.name_en, r.name_zh, r.status];
+      const cellKey = (text) => {
+        const s = String(text || "").trim().replace(/,/g, "");
+        if (!s) return { empty: 1, num: 0, n: 0, s: "" };
+        if (/^-?\d+(\.\d+)?$/.test(s)) return { empty: 0, num: 0, n: parseFloat(s), s: "" };
+        return { empty: 0, num: 1, n: 0, s: s.toLowerCase() };
       };
-      rows.sort((a, b) => {
-        const av = keyOf(a), bv = keyOf(b);
-        if (av < bv) return horsesSortAsc ? -1 : 1;
-        if (av > bv) return horsesSortAsc ? 1 : -1;
+      const cmp = (a, b) => {
+        if (a.empty !== b.empty) return a.empty - b.empty;
+        if (a.num !== b.num) return a.num - b.num;
+        if (a.num === 0) return a.n === b.n ? 0 : a.n < b.n ? -1 : 1;
+        if (a.s < b.s) return -1;
+        if (a.s > b.s) return 1;
+        return 0;
+      };
+      rows.sort((ra, rb) => {
+        const va = valsOf(ra), vb = valsOf(rb);
+        for (const { col, asc } of horsesSortKeys) {
+          const c = cmp(cellKey(va[col]), cellKey(vb[col]));
+          if (c !== 0) return asc ? c : -c;
+        }
         return 0;
       });
       return rows;
@@ -764,6 +979,7 @@
       if (!table) return;
       padGridRows(table, minRows == null ? 8 : minRows);
       applyGridAlignment(table);
+      if (window.HppvGridSort) window.HppvGridSort.bind(table);
     }
 
     async function loadHorses() {
@@ -866,6 +1082,7 @@
       ["獎金", "prize_money"],
       ["評分範圍", "rating_range"],
       ["班次", "race_class"],
+      ["標準完成時間", "standard_finish_time"],
     ];
 
     async function loadRacecard(opts) {
@@ -902,7 +1119,7 @@
       const races = racecardPayload.races || [];
       const keepRace = document.querySelector("#racecardTabs .tab.active");
       const keepNo = keepRace ? keepRace.dataset.race : null;
-      // 分頁標題對齊 Windows：第一場／第二場…
+      // 分頁標題對齊 Windows：第一場 13:00（附開跑時間）
       tabs.innerHTML = races.map((r, i) =>
         `<button class="tab ${i===0?"active":""}" type="button" data-race="${r.race_no}">${r.label || ("第 " + r.race_no + " 場")}</button>`
       ).join("");
@@ -917,6 +1134,7 @@
         document.getElementById("racecardRaceInfo").innerHTML = "";
         document.querySelector("#racecardGrid thead tr").innerHTML = "";
         document.querySelector("#racecardGrid tbody").innerHTML = "";
+        clearRacecardForm();
         setStatus("沒有排位資料可顯示");
       }
     }
@@ -928,11 +1146,80 @@
         box.innerHTML = '<div class="ri-tip">（此場尚無場次摘要：請按「更新資料」重新抓取，或該日賽事頁面暫無資料）</div>';
         return;
       }
+      // 前端補算標準完成時間（即使伺服器行程未重載也能顯示）
+      const data = (window.HppvStandardTimes && window.HppvStandardTimes.attach)
+        ? window.HppvStandardTimes.attach(info)
+        : info;
       box.hidden = false;
       box.innerHTML = RACE_INFO_PAIRS.map(([cn, key]) => {
-        const v = (info[key] == null || String(info[key]).trim() === "") ? "—" : String(info[key]);
+        const v = (data[key] == null || String(data[key]).trim() === "") ? "—" : String(data[key]);
         return `<span class="ri-label">${cn}：</span><span class="ri-value">${v}</span>`;
       }).join("");
+    }
+
+    // 與馬匹往績 RACE_COLS／/api/app/horse 完全相同
+    let racecardFormHorseId = "";
+
+    function clearRacecardForm(msg) {
+      racecardFormHorseId = "";
+      document.getElementById("racecardFormTitle").textContent = msg || "往績（請選擇上方馬匹）";
+      const head = document.getElementById("racecardFormHead");
+      if (head) head.innerHTML = RACE_COLS.map((c) => `<th>${c}</th>`).join("");
+      const tb = document.querySelector("#racecardFormGrid tbody");
+      if (tb) tb.innerHTML = "";
+      finalizeDataGrid(document.getElementById("racecardFormGrid"));
+      if (window.HppvGridNav) {
+        window.HppvGridNav.bind(document.getElementById("racecardFormGrid"), { editable: false, focus: false });
+      }
+    }
+
+    async function loadRacecardForm(horseId, horseName) {
+      const hid = String(horseId || "").trim();
+      if (!hid) {
+        clearRacecardForm();
+        return;
+      }
+      if (hid === racecardFormHorseId) return;
+      racecardFormHorseId = hid;
+      const title = horseName ? `${horseName}（${hid}）｜往績` : `${hid}｜往績`;
+      document.getElementById("racecardFormTitle").textContent = title;
+      const head = document.getElementById("racecardFormHead");
+      if (head) head.innerHTML = RACE_COLS.map((c) => `<th>${c}</th>`).join("");
+      const tb = document.querySelector("#racecardFormGrid tbody");
+      tb.innerHTML = `<tr><td colspan="${RACE_COLS.length}">載入中…</td></tr>`;
+      try {
+        const res = await fetch("/api/app/horse/" + encodeURIComponent(hid));
+        const data = await res.json();
+        if (hid !== racecardFormHorseId) return;
+        const cols = (data && data.race_columns) ? data.race_columns : RACE_COLS;
+        if (head) head.innerHTML = cols.map((c) => `<th>${c}</th>`).join("");
+        const records = (data && data.ok && data.races) ? data.races : [];
+        if (!records.length) {
+          tb.innerHTML = `<tr><td colspan="${cols.length}">暫無往績</td></tr>`;
+          document.getElementById("racecardFormTitle").textContent = `${title}（暫無往績）`;
+        } else {
+          tb.innerHTML = records.map((r) =>
+            `<tr>${cols.map((c) => `<td>${r[c] ?? ""}</td>`).join("")}</tr>`
+          ).join("");
+        }
+      } catch (_err) {
+        if (hid === racecardFormHorseId) {
+          tb.innerHTML = `<tr><td colspan="${RACE_COLS.length}">載入往績失敗</td></tr>`;
+        }
+      }
+      finalizeDataGrid(document.getElementById("racecardFormGrid"));
+      if (window.HppvGridNav) {
+        window.HppvGridNav.bind(document.getElementById("racecardFormGrid"), { editable: false, focus: false });
+      }
+    }
+
+    function horseNameFromRacecardRow(tr) {
+      if (!tr || !racecardPayload) return "";
+      const cols = racecardPayload.columns || [];
+      const nameIdx = cols.findIndex((c) => c === "馬名" || c === "馬匹名稱");
+      if (nameIdx < 0) return "";
+      const td = tr.querySelectorAll("td")[nameIdx];
+      return td ? String(td.textContent || "").trim() : "";
     }
 
     function showRace(raceNo) {
@@ -948,6 +1235,8 @@
       document.querySelector("#racecardGrid tbody").innerHTML = rows.map((row) =>
         `<tr data-horse="${row.__horse_id || ""}">${cols.map((c) => `<td>${row[c] ?? ""}</td>`).join("")}</tr>`
       ).join("");
+      clearRacecardForm();
+      const grid = document.getElementById("racecardGrid");
       document.querySelectorAll("#racecardGrid tbody tr").forEach((tr) => {
         tr.addEventListener("dblclick", () => {
           const hid = tr.dataset.horse;
@@ -964,9 +1253,25 @@
           }
         });
       });
-      padGridRows(document.getElementById("racecardGrid"), 12);
-      applyGridAlignment(document.getElementById("racecardGrid"));
-      if (window.HppvGridNav) window.HppvGridNav.bind(document.getElementById("racecardGrid"), { editable: false });
+      finalizeDataGrid(grid, 12);
+      if (!grid._racecardFormBound) {
+        grid._racecardFormBound = true;
+        grid.addEventListener("hppv:rowchange", (ev) => {
+          const tr = ev.detail && ev.detail.tr;
+          if (!tr || tr.classList.contains("grid-pad")) return;
+          const hid = tr.dataset.horse || (ev.detail && ev.detail.id) || "";
+          loadRacecardForm(hid, horseNameFromRacecardRow(tr));
+        });
+      }
+      // 先綁定列變更，再聚焦，避免 bind 內 focus 時尚未掛上監聽
+      if (window.HppvGridNav) window.HppvGridNav.bind(grid, { editable: false, focus: false });
+      const firstTr = grid.querySelector("tbody tr:not(.grid-pad)");
+      const firstTd = firstTr && firstTr.querySelector("td");
+      if (firstTd && window.HppvGridNav) {
+        window.HppvGridNav.focusCell(firstTd, { edit: false });
+      } else if (firstTr) {
+        loadRacecardForm(firstTr.dataset.horse || "", horseNameFromRacecardRow(firstTr));
+      }
     }
 
     function formatDownloadStatus(data) {
@@ -985,32 +1290,85 @@
       setBackgroundStatus(formatDownloadStatus(data));
       return data;
     }
-    function startDownloadStatusPolling() {
-      if (window._dlStatusTimer) clearInterval(window._dlStatusTimer);
-      window._dlStatusTimer = setInterval(() => {
-        pollDownloadStatusOnce().catch(() => {});
-      }, 500);
-    }
-    function stopDownloadStatusPolling() {
+    function stopDenseDownloadStatusPolling() {
       if (window._dlStatusTimer) {
         clearInterval(window._dlStatusTimer);
         window._dlStatusTimer = null;
       }
     }
+    function stopIntervalDownloadStatusPolling() {
+      if (window._dlIdleStatusTimer) {
+        clearInterval(window._dlIdleStatusTimer);
+        window._dlIdleStatusTimer = null;
+      }
+    }
+    /** 取消／手動結束：停掉所有 download_status 監聽。 */
+    function stopDownloadStatusPolling() {
+      stopDenseDownloadStatusPolling();
+      stopIntervalDownloadStatusPolling();
+    }
+    /** 下載執行中密集輪詢（500ms）；結束後由 runDownloadJob 決定是否改為間隔監聽。 */
+    function startDownloadStatusPolling() {
+      stopDenseDownloadStatusPolling();
+      let sawRunning = false;
+      window._dlStatusTimer = setInterval(async () => {
+        try {
+          const data = await pollDownloadStatusOnce();
+          if (data && data.running) sawRunning = true;
+          else if (sawRunning) stopDenseDownloadStatusPolling();
+        } catch (_err) {
+          /* ignore */
+        }
+      }, 500);
+    }
+    /** 每隔一段時間下載：完成後每 30 秒打一次 download_status。 */
+    function startIntervalDownloadStatusPolling() {
+      stopIntervalDownloadStatusPolling();
+      window._dlIdleStatusTimer = setInterval(() => {
+        if (window._dlStatusTimer) return; // 手動／執行中由密集輪詢負責
+        pollDownloadStatusOnce().catch(() => {});
+      }, 30000);
+      pollDownloadStatusOnce().catch(() => {});
+    }
+    function abortDownloadRunFetch() {
+      if (window._dlAbort) {
+        try { window._dlAbort.abort(); } catch (_e) { /* ignore */ }
+        window._dlAbort = null;
+      }
+    }
     async function runDownloadJob(body) {
+      abortDownloadRunFetch();
+      const ac = new AbortController();
+      window._dlAbort = ac;
+      const wantIntervalWatch = !!(body && body.mode === "interval");
       startDownloadStatusPolling();
+      let result = null;
       try {
         await pollDownloadStatusOnce();
         const res = await fetch("/api/app/download_run", {
           method: "POST",
           headers: {"Content-Type": "application/json"},
-          body: JSON.stringify(body),
+          body: JSON.stringify(body || {}),
+          signal: ac.signal,
         });
-        const data = await res.json();
+        result = await res.json();
         await pollDownloadStatusOnce();
-        return data;
+        return result;
+      } catch (err) {
+        if (err && err.name === "AbortError") {
+          result = { ok: false, cancelled: true, message: "已取消下載" };
+          return result;
+        }
+        throw err;
       } finally {
-        stopDownloadStatusPolling();
+        if (window._dlAbort === ac) window._dlAbort = null;
+        stopDenseDownloadStatusPolling();
+        // 手動／每日指定：下載完停止監聽；間隔模式：改為每 30 秒
+        if (wantIntervalWatch && result && !result.cancelled) {
+          startIntervalDownloadStatusPolling();
+        } else {
+          stopIntervalDownloadStatusPolling();
+        }
       }
     }
     async function updateRacecardFromWeb() {
@@ -1019,7 +1377,11 @@
       setBackgroundStatus("下載：正在下載排位與即時賠率…");
       try {
         const data = await runDownloadJob({racecard: true});
-        setBackgroundStatus(data.message || (data.ok ? "下載完成（排位）" : "下載失敗（排位）"));
+        const doneAt = new Date().toLocaleString("zh-TW", { hour12: false });
+        const baseMsg = data.message || (data.ok ? "下載完成（排位）" : "下載失敗（排位）");
+        setBackgroundStatus(
+          String(baseMsg).includes("完成時間") ? baseMsg : `${baseMsg}｜完成時間 ${doneAt}`
+        );
         if (!data.ok) alert(data.message || "排位更新失敗");
         await loadRacecard({refreshMeetings: true});
       } catch (err) {
@@ -1031,8 +1393,56 @@
     }
 
     let resultsMeetingsLoaded = false;
+    let resultsSelectedRace = "all";
+
+    function resultsTop3RowHtml(r) {
+      return `<tr>
+        <td>${r.name || ""}</td>
+        <td>${r.wins ?? ""}</td><td>${r.seconds ?? ""}</td><td>${r.thirds ?? ""}</td>
+      </tr>`;
+    }
+
+    function renderResultsTop3(stats) {
+      const s = stats || {};
+      const fill = (sel, rows) => {
+        const tb = document.querySelector(sel);
+        if (tb) tb.innerHTML = (rows || []).map(resultsTop3RowHtml).join("");
+      };
+      fill("#resultsTrainerStats tbody", s.trainers);
+      fill("#resultsJockeyStats tbody", s.jockeys);
+      fill("#resultsDrawStats tbody", s.draws);
+      fill("#resultsHandicapStats tbody", s.handicaps);
+      fill("#resultsOddsStats tbody", s.odds);
+      [
+        "resultsTrainerStats",
+        "resultsJockeyStats",
+        "resultsDrawStats",
+        "resultsHandicapStats",
+        "resultsOddsStats",
+      ].forEach((id) => {
+        const t = document.getElementById(id);
+        if (t && window.HppvGridNav) window.HppvGridNav.bind(t, { editable: false });
+      });
+    }
+
+    function renderResultsRaceOptions(raceNos, selected) {
+      const sel = document.getElementById("resultsRace");
+      const want = selected || resultsSelectedRace || "all";
+      const opts = [`<option value="all">全部場次</option>`].concat(
+        (raceNos || []).map((n) => `<option value="${n}">第${Number(n)}場</option>`)
+      );
+      sel.innerHTML = opts.join("");
+      if (want && Array.from(sel.options).some((o) => o.value === want)) {
+        sel.value = want;
+      } else {
+        sel.value = "all";
+      }
+      resultsSelectedRace = sel.value || "all";
+    }
+
     async function loadResults(date, course) {
       const sel = document.getElementById("resultsMeeting");
+      const raceSel = document.getElementById("resultsRace");
       // 已有選取時沿用，避免重讀／重畫賽日清單
       let useDate = date;
       let useCourse = course;
@@ -1041,10 +1451,13 @@
         useDate = parts[0];
         useCourse = parts[1] || "";
       }
+      const useRace = (raceSel && raceSel.value) || resultsSelectedRace || "all";
+      resultsSelectedRace = useRace;
       let url = "/api/app/results";
       const qs = [];
       if (useDate) qs.push("date=" + encodeURIComponent(useDate));
       if (useCourse) qs.push("course=" + encodeURIComponent(useCourse));
+      if (useRace && useRace !== "all") qs.push("race=" + encodeURIComponent(useRace));
       if (qs.length) url += "?" + qs.join("&");
       const res = await fetch(url);
       const data = await res.json();
@@ -1061,6 +1474,7 @@
         const opt = Array.from(sel.options).find((o) => o.value === cur);
         if (opt) sel.value = cur;
       }
+      renderResultsRaceOptions(data.race_nos || [], useRace);
       const tbody = document.querySelector("#resultsGrid tbody");
       tbody.innerHTML = (data.rows || []).map((r) => `
         <tr data-id="${r.horse_id || ""}">
@@ -1069,15 +1483,238 @@
           <td>${r.class_band || ""}</td><td>${r.rating || ""}</td>
           <td>${r.jockey || ""}</td><td>${r.trainer || ""}</td>
           <td>${r.handicap || ""}</td><td>${r.draw || ""}</td><td>${r.running_pos || ""}</td>
+          <td>${r.sectional_time || ""}</td>
           <td>${r.time || ""}</td>
           <td>${r.win_odds || ""}</td><td>${r.place_odds || ""}</td><td>${r.distance || ""}</td>
         </tr>`).join("");
-      setStatus(`賽馬結果：${data.race_date || ""} ${data.racecourse || ""}（${(data.rows||[]).length} 筆）`);
-      if (window.HppvGridNav) window.HppvGridNav.bind(document.getElementById("resultsGrid"), { editable: false });
+      renderResultsTop3(data.top3_stats);
+      const raceLabel = useRace === "all" ? "全部場次" : `第${Number(useRace)}場`;
+      setStatus(`賽馬結果：${data.race_date || ""} ${data.racecourse || ""} ${raceLabel}（${(data.rows||[]).length} 筆）`);
+      const resultsGrid = document.getElementById("resultsGrid");
+      finalizeDataGrid(resultsGrid, 12);
+      if (window.HppvGridNav) window.HppvGridNav.bind(resultsGrid, { editable: false });
     }
 
     let kingsMeetingsLoaded = false;
     let kingsPayload = null;
+    const footballState = {
+      hk: { meetingsLoaded: false, payload: null, selectedMatchId: "" },
+      epl: { meetingsLoaded: false, payload: null, selectedMatchId: "" },
+    };
+    const FOOTBALL_UI = {
+      hk: {
+        meeting: "footballMeeting",
+        results: "footballResultsGrid",
+        label: "香港足球",
+        emptyHint: "尚無香港足球資料，請先到「下載資料」勾選足球賠率／賽果後執行下載",
+      },
+      epl: {
+        meeting: "footballEplMeeting",
+        results: "footballEplResultsGrid",
+        label: "英超足球",
+        emptyHint: "尚無英超資料，請先到「下載資料」勾選英超賽程/賽果後執行下載",
+      },
+    };
+    const FOOTBALL_DISPLAY_COL_CHARS = [12, 10, 6, 12, 12, 8, 8, 8, 7, 7, 7];
+
+    function footballDisplayRowHtml(row) {
+      const mid = row.match_id || "";
+      return `<tr data-match-id="${mid}">
+        <td>${row.league || ""}</td>
+        <td>${row.match_date || ""}</td>
+        <td>${row.kick_off_time || ""}</td>
+        <td>${row.home_team || ""}</td>
+        <td>${row.away_team || ""}</td>
+        <td>${row.neutral_venue || ""}</td>
+        <td>${row.ft_score || ""}</td>
+        <td>${row.ht_score || ""}</td>
+        <td>${row.odds_home || ""}</td>
+        <td>${row.odds_draw || ""}</td>
+        <td>${row.odds_away || ""}</td>
+      </tr>`;
+    }
+    function normalizeFootballDisplayRows(payload) {
+      const direct = (payload && (payload.display_rows || payload.epl_rows)) || [];
+      if (direct.length && (direct[0].league != null || direct[0].ft_score != null || direct[0].odds_home != null)) {
+        return direct;
+      }
+      // 相容舊 API：把 result_rows 轉成顯示列
+      return ((payload && payload.result_rows) || []).map((row) => {
+        if (row.league != null || row.ft_score != null) return row;
+        const kick = String(row.kick_off_time || "");
+        let day = String(row.match_date || "").slice(0, 10);
+        let time = "";
+        if (kick.includes("T")) {
+          const tail = kick.split("T")[1] || "";
+          time = tail.slice(0, 5);
+          if (!day) day = kick.slice(0, 10);
+        } else if (kick.length >= 5 && kick[2] === ":") {
+          time = kick.slice(0, 5);
+        }
+        const ft = (row.home_score || row.away_score)
+          ? `${row.home_score || ""}-${row.away_score || ""}`
+          : (row.ft_score || "");
+        const ht = (row.home_ht_score || row.away_ht_score)
+          ? `${row.home_ht_score || ""}-${row.away_ht_score || ""}`
+          : (row.ht_score || "");
+        return {
+          match_id: row.match_id || "",
+          league: row.league || row.tournament_name || row.tournament_code || "",
+          match_date: day,
+          kick_off_time: time,
+          home_team: row.home_team || "",
+          away_team: row.away_team || "",
+          neutral_venue: row.neutral_venue || "",
+          ft_score: ft,
+          ht_score: ht,
+          odds_home: row.odds_home || "",
+          odds_draw: row.odds_draw || "",
+          odds_away: row.odds_away || "",
+        };
+      });
+    }
+    function fitFootballGridColumns(table, defaultChars) {
+      if (!table) return;
+      const ths = table.querySelectorAll("thead th");
+      if (!ths.length) return;
+      const sample = document.createElement("span");
+      sample.style.cssText = "position:absolute;visibility:hidden;white-space:nowrap;font:inherit;";
+      sample.textContent = "0";
+      table.appendChild(sample);
+      const cw = Math.max(8, sample.offsetWidth || 10);
+      sample.remove();
+      const widths = [];
+      ths.forEach((th, i) => {
+        let maxChars = defaultChars[i] || 8;
+        const cells = table.querySelectorAll(`tbody tr:not(.grid-pad) td:nth-child(${i + 1})`);
+        cells.forEach((td) => {
+          const len = String(td.textContent || "").trim().length;
+          if (len > maxChars) maxChars = len;
+        });
+        const headerLen = String(th.childNodes[0] ? th.childNodes[0].textContent : th.textContent || "").trim().length;
+        maxChars = Math.max(maxChars, headerLen, 4);
+        maxChars = Math.min(36, maxChars);
+        widths.push(Math.max(48, maxChars * cw + 18));
+      });
+      let colgroup = table.querySelector("colgroup");
+      if (!colgroup) {
+        colgroup = document.createElement("colgroup");
+        table.insertBefore(colgroup, table.firstChild);
+      }
+      colgroup.innerHTML = widths.map((w) => `<col style="width:${w}px">`).join("");
+      const total = widths.reduce((a, b) => a + b, 0);
+      table.style.width = `${total}px`;
+      table.style.minWidth = `${total}px`;
+      table.dataset.fbColWidths = JSON.stringify(widths);
+      bindFootballColResize(table);
+    }
+    function bindFootballColResize(table) {
+      if (!table || table.dataset.fbResizeBound === "1") return;
+      table.dataset.fbResizeBound = "1";
+      const ths = table.querySelectorAll("thead th");
+      ths.forEach((th, colIdx) => {
+        if (th.querySelector(".col-resizer")) return;
+        const grip = document.createElement("span");
+        grip.className = "col-resizer";
+        grip.title = "拖曳調整欄寬";
+        th.appendChild(grip);
+        grip.addEventListener("mousedown", (ev) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+          let widths = [];
+          try { widths = JSON.parse(table.dataset.fbColWidths || "[]"); } catch (_) { widths = []; }
+          if (!widths.length) {
+            widths = Array.from(ths).map((h) => h.offsetWidth || 80);
+          }
+          const startX = ev.clientX;
+          const startW = widths[colIdx] || th.offsetWidth || 80;
+          const onMove = (e) => {
+            widths[colIdx] = Math.max(40, startW + (e.clientX - startX));
+            table.dataset.fbColWidths = JSON.stringify(widths);
+            const cols = table.querySelectorAll("colgroup col");
+            if (cols[colIdx]) cols[colIdx].style.width = `${widths[colIdx]}px`;
+            const total = widths.reduce((a, b) => a + b, 0);
+            table.style.width = `${total}px`;
+            table.style.minWidth = `${total}px`;
+          };
+          const onUp = () => {
+            document.removeEventListener("mousemove", onMove);
+            document.removeEventListener("mouseup", onUp);
+            document.body.style.cursor = "";
+            document.body.style.userSelect = "";
+          };
+          document.body.style.cursor = "col-resize";
+          document.body.style.userSelect = "none";
+          document.addEventListener("mousemove", onMove);
+          document.addEventListener("mouseup", onUp);
+        });
+      });
+    }
+    function renderFootballGrids(scope) {
+      const key = scope === "epl" ? "epl" : "hk";
+      const ui = FOOTBALL_UI[key];
+      const st = footballState[key];
+      const resultsTable = document.getElementById(ui.results);
+      if (!resultsTable) return;
+      const rows = normalizeFootballDisplayRows(st.payload);
+      resultsTable.querySelector("tbody").innerHTML =
+        rows.map(footballDisplayRowHtml).join("");
+      finalizeDataGrid(resultsTable, 15);
+      fitFootballGridColumns(resultsTable, FOOTBALL_DISPLAY_COL_CHARS);
+      if (window.HppvGridNav) window.HppvGridNav.bind(resultsTable, { editable: false });
+    }
+    async function loadFootball(scopeOrForce, forceMeetings = false) {
+      let scope = "hk";
+      if (scopeOrForce === true || scopeOrForce === false) {
+        forceMeetings = !!scopeOrForce;
+      } else if (scopeOrForce === "epl" || scopeOrForce === "football_epl") {
+        scope = "epl";
+      } else if (scopeOrForce === "hk" || scopeOrForce === "football") {
+        scope = "hk";
+      }
+      const key = scope;
+      const ui = FOOTBALL_UI[key];
+      const st = footballState[key];
+      const sel = document.getElementById(ui.meeting);
+      const cur = sel.value || "";
+      const qs = ["scope=" + encodeURIComponent(scope)];
+      if (cur) qs.push("date=" + encodeURIComponent(cur));
+      if (st.selectedMatchId) qs.push("match_id=" + encodeURIComponent(st.selectedMatchId));
+      const url = "/api/app/football?" + qs.join("&");
+      let res;
+      try {
+        res = await fetch(url);
+      } catch (err) {
+        setBackgroundStatus(ui.label + "資料載入失敗：" + err);
+        return;
+      }
+      if (!res.ok) {
+        setBackgroundStatus(`${ui.label} API 錯誤：HTTP ${res.status}（請重啟 WEB 伺服器）`);
+        st.payload = {meetings: [], result_rows: [], odds_match_rows: [], odds_rows: []};
+        renderFootballGrids(scope);
+        return;
+      }
+      st.payload = await res.json();
+      const meetings = st.payload.meetings || [];
+      const raceDate = st.payload.race_date || "";
+      st.selectedMatchId = st.payload.selected_match_id || st.selectedMatchId || "";
+      if (forceMeetings || !st.meetingsLoaded || sel.options.length === 0) {
+        sel.innerHTML = meetings.map((m) => {
+          const v = m.race_date;
+          return `<option value="${v}" ${v === raceDate ? "selected" : ""}>${m.label || v}</option>`;
+        }).join("");
+        st.meetingsLoaded = sel.options.length > 0;
+      } else if (raceDate && sel.value !== raceDate) {
+        const opt = Array.from(sel.options).find((o) => o.value === raceDate);
+        if (opt) sel.value = raceDate;
+      }
+      renderFootballGrids(scope);
+      const n = normalizeFootballDisplayRows(st.payload).length;
+      setStatus(`${ui.label}：${raceDate || ""}（${n} 場）`);
+      if (!meetings.length) {
+        setBackgroundStatus(ui.emptyHint);
+      }
+    }
 
     function kingsDayRowHtml(r) {
       let name = r.person_name || "";
@@ -1274,6 +1911,8 @@
       else if (action === "racecard") openTab("racecard");
       else if (action === "results") openTab("results");
       else if (action === "kings") openTab("kings");
+      else if (action === "football") openTab("football");
+      else if (action === "football_epl") openTab("football_epl");
       else if (action === "analysis") openTab("analysis");
       else if (action === "print") openTab("print");
       else if (action === "ai") openTab("ai");
@@ -1298,8 +1937,6 @@
         renderSideMenu();
         renderMainMenuItems();
         setStatus("主選單樣式：" + MENU_STYLES[menuStyleIdx][1]);
-      } else if (action === "windows") {
-        alert("切換 Windows 介面：\n請回到已開啟的 Racing Windows 視窗（工具列有「WEB 介面」可再切回本頁）。\n若尚未啟動：python -m racing");
       } else if (action === "legacy-web") {
         location.href = "{{ url_for('legacy_dashboard') }}";
       } else if (action === "exit") {
@@ -1334,12 +1971,26 @@
     document.querySelectorAll(".detail-tabbar .tab").forEach((b) =>
       b.addEventListener("click", () => openDetailTab(b.dataset.detail))
     );
+    document.querySelectorAll(".results-stats-tabbar .tab").forEach((b) =>
+      b.addEventListener("click", () =>
+        openResultsStatsTab(b.getAttribute("data-results-stats") || b.dataset.resultsStats)
+      )
+    );
     document.querySelectorAll("#horsesGrid thead th").forEach((th) => {
       th.style.cursor = "pointer";
-      th.addEventListener("click", () => {
+      th.title = "點選排序；Shift+點選可多欄排序";
+      th.addEventListener("click", (ev) => {
         const col = Number(th.dataset.col);
-        if (horsesSortCol === col) horsesSortAsc = !horsesSortAsc;
-        else { horsesSortCol = col; horsesSortAsc = true; }
+        if (ev.shiftKey) {
+          const i = horsesSortKeys.findIndex((k) => k.col === col);
+          if (i >= 0) horsesSortKeys[i] = { col, asc: !horsesSortKeys[i].asc };
+          else horsesSortKeys.push({ col, asc: true });
+          horsesSortKeys = horsesSortKeys.slice(0, 4);
+        } else if (horsesSortKeys.length && horsesSortKeys[0].col === col) {
+          horsesSortKeys = [{ col, asc: !horsesSortKeys[0].asc }];
+        } else {
+          horsesSortKeys = [{ col, asc: true }];
+        }
         loadHorses();
       });
     });
@@ -1366,12 +2017,29 @@
     });
     document.getElementById("btnReloadResults").addEventListener("click", () => loadResults());
     document.getElementById("resultsMeeting").addEventListener("change", () => {
+      resultsSelectedRace = "all";
+      const raceSel = document.getElementById("resultsRace");
+      if (raceSel) raceSel.value = "all";
       const v = document.getElementById("resultsMeeting").value || "";
       const [d, c] = v.split("|");
       loadResults(d, c);
     });
+    document.getElementById("resultsRace").addEventListener("change", () => {
+      resultsSelectedRace = document.getElementById("resultsRace").value || "all";
+      loadResults();
+    });
     document.getElementById("btnReloadKings").addEventListener("click", () => loadKings());
     document.getElementById("kingsMeeting").addEventListener("change", () => loadKings());
+    document.getElementById("btnReloadFootball").addEventListener("click", () => loadFootball("hk"));
+    document.getElementById("footballMeeting").addEventListener("change", () => {
+      footballState.hk.selectedMatchId = "";
+      loadFootball("hk");
+    });
+    document.getElementById("btnReloadFootballEpl").addEventListener("click", () => loadFootball("epl"));
+    document.getElementById("footballEplMeeting").addEventListener("change", () => {
+      footballState.epl.selectedMatchId = "";
+      loadFootball("epl");
+    });
     document.getElementById("anMeeting").addEventListener("change", async () => {
       await loadAnalysisMeta();
     });
@@ -1379,7 +2047,7 @@
       el.addEventListener("change", anSyncRaceMode);
     });
     document.getElementById("btnAnAddCond").addEventListener("click", () => {
-      anAppendCondRow({ enabled: true, kind: "custom", scoring: "" });
+      anAppendCondRow({ enabled: true, kind: "custom", scoring: "" }, { focus: true });
     });
     const anFieldsEl = document.getElementById("anFieldsText");
     anFieldsEl.addEventListener("input", anFitFieldsHeight);
@@ -1396,8 +2064,8 @@
     document.getElementById("btnAnResetCond").addEventListener("click", () => {
       anRenderConditions((anMeta && anMeta.default_conditions) || []);
     });
-    document.getElementById("btnAnLoadTpl").addEventListener("click", () => {
-      anLoadSelectedTemplate();
+    document.getElementById("anTemplate").addEventListener("change", () => {
+      anLoadSelectedTemplate({ quiet: true });
     });
     document.getElementById("btnAnSaveTpl").addEventListener("click", async () => {
       await anSaveAsTemplate();
@@ -1452,6 +2120,7 @@
     /* —— 賽馬分析 —— */
     let anMeta = null;
     let anCondSelected = -1;
+    let anSessionReady = false;
     function anEsc(text) {
       return String(text ?? "")
         .replace(/&/g, "&amp;").replace(/</g, "&lt;")
@@ -1528,29 +2197,96 @@
         return `<option value="${anEsc(m.race_date)}|${anEsc(m.racecourse)}" data-date="${anEsc(m.race_date)}" data-course="${anEsc(m.racecourse)}"${mark}>${anEsc(m.label || (m.race_date + " " + m.racecourse))}</option>`;
       }).join("");
     }
-    function anRenderRaceNos(raceNos) {
+    function anRenderRaceNos(raceNos, keepNo) {
       const sel = document.getElementById("anRaceNo");
+      const want = keepNo != null && keepNo !== "" ? String(keepNo) : String(sel.value || "");
       sel.innerHTML = (raceNos || []).map((n) =>
         `<option value="${n}">第${n}場</option>`
       ).join("");
+      if (want && Array.from(sel.options).some((o) => o.value === want)) {
+        sel.value = want;
+      }
+    }
+    function anCaptureUiState() {
+      const meeting = anSelectedMeeting() || {};
+      return {
+        race_date: meeting.race_date || "",
+        racecourse: meeting.racecourse || "",
+        race_no: document.getElementById("anRaceNo").value || "",
+        all_races: document.getElementById("anRaceAll").checked,
+        columns: anSelectedColumns(),
+        columns_text: document.getElementById("anFieldsText").value.trim(),
+        sort_field: document.getElementById("anSortField").value.trim() || "合計分數",
+        sort_ascending: document.getElementById("anSortAsc").checked,
+        conditions: anConditionRows(),
+        title: document.getElementById("anTitle").value.trim(),
+        template_id: document.getElementById("anTemplate").value || "",
+        preview: document.getElementById("anPreview").value || "",
+      };
+    }
+    function anApplyUiState(state, opts) {
+      if (!state) return;
+      const soft = !!(opts && opts.soft);
+      if (state.columns_text) {
+        document.getElementById("anFieldsText").value = state.columns_text;
+      } else if (Array.isArray(state.columns) && state.columns.length) {
+        document.getElementById("anFieldsText").value = anFormatColumnsText(state.columns);
+      }
+      anFitFieldsHeight();
+      if (state.sort_field) {
+        document.getElementById("anSortField").value = state.sort_field;
+      }
+      if (state.sort_ascending) document.getElementById("anSortAsc").checked = true;
+      else document.getElementById("anSortDesc").checked = true;
+      if ("all_races" in state) {
+        if (state.all_races === false) document.getElementById("anRaceOne").checked = true;
+        else document.getElementById("anRaceAll").checked = true;
+      }
+      anSyncRaceMode();
+      if (Array.isArray(state.conditions) && state.conditions.length) {
+        anRenderConditions(state.conditions);
+      }
+      if (!soft) {
+        if (state.title) document.getElementById("anTitle").value = state.title;
+        if ("preview" in state) document.getElementById("anPreview").value = state.preview || "";
+      } else {
+        if (state.title) document.getElementById("anTitle").value = state.title;
+        if (state.preview) document.getElementById("anPreview").value = state.preview;
+      }
+      if (state.race_no != null && state.race_no !== "") {
+        const sel = document.getElementById("anRaceNo");
+        const want = String(state.race_no);
+        if (Array.from(sel.options).some((o) => o.value === want)) sel.value = want;
+      }
+    }
+    function anPersistSession() {
+      const body = anCaptureUiState();
+      if (!body.columns_text && !(body.columns && body.columns.length) && !(body.conditions && body.conditions.length)) {
+        return;
+      }
+      fetch("/api/app/analysis/prefs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }).catch(() => {});
     }
     function anSyncRaceMode() {
       const one = document.getElementById("anRaceOne").checked;
       document.getElementById("anRaceNo").disabled = !one;
     }
-    function anAppendCondRow(row) {
+    function anAppendCondRow(row, opts) {
       const kinds = (anMeta && anMeta.condition_types) || [];
       const defaults = (anMeta && anMeta.default_scoring) || {};
       const kind = row?.kind || "custom";
       const scoring = row?.scoring ?? (defaults[kind] || "");
       const enabled = row?.enabled !== false;
-      const opts = kinds.map((k) =>
+      const optsKinds = kinds.map((k) =>
         `<option value="${anEsc(k.id)}" ${k.id === kind ? "selected" : ""}>${anEsc(k.label)}</option>`
       ).join("");
       const tr = document.createElement("tr");
       tr.innerHTML =
         `<td class="num"><input type="checkbox" class="an-en" ${enabled ? "checked" : ""}></td>` +
-        `<td><select class="an-kind">${opts}</select></td>` +
+        `<td><select class="an-kind">${optsKinds}</select></td>` +
         `<td><input type="text" class="an-cell-input an-scoring" value="${anEsc(scoring)}"></td>`;
       tr.addEventListener("click", (ev) => {
         if (ev.target.closest("input, select")) return;
@@ -1567,7 +2303,21 @@
           scoringEl.value = defaults[k] || "";
         }
       });
-      document.querySelector("#anCondGrid tbody").appendChild(tr);
+      const tb = document.querySelector("#anCondGrid tbody");
+      tb.appendChild(tr);
+      anCondSelected = tb.children.length - 1;
+      tb.querySelectorAll("tr").forEach((r, i) => {
+        r.classList.toggle("grid-selected", i === anCondSelected);
+      });
+      if (opts && opts.focus) {
+        const scoringEl = tr.querySelector(".an-scoring");
+        const pane = document.querySelector("#panel-analysis .analysis-cond-pane");
+        if (pane) tr.scrollIntoView({ block: "nearest", inline: "nearest" });
+        if (scoringEl) {
+          scoringEl.focus();
+          scoringEl.select();
+        }
+      }
     }
     function anRenderConditions(rows) {
       const tb = document.querySelector("#anCondGrid tbody");
@@ -1580,15 +2330,22 @@
       if (allRaces) return `賽馬分析 ${date} 各場合計`;
       return `賽馬分析 ${date} 第${raceNo}場合計`;
     }
-    function anRenderTemplates(templates, selectId) {
+    function anRenderTemplates(templates, selectId, opts) {
       const sel = document.getElementById("anTemplate");
-      const keep = selectId != null ? String(selectId) : sel.value;
       const list = templates || (anMeta && anMeta.templates) || [];
-      sel.innerHTML = `<option value="">（選擇範本）</option>` + list.map((t) =>
+      const want = selectId != null ? String(selectId) : String(sel.value || "");
+      sel.innerHTML = list.map((t) =>
         `<option value="${anEsc(t.id)}">${anEsc(t.name || t.id)}</option>`
       ).join("");
-      if (keep && Array.from(sel.options).some((o) => o.value === keep)) {
-        sel.value = keep;
+      let chosen = "";
+      if (want && Array.from(sel.options).some((o) => o.value === want)) {
+        chosen = want;
+      } else if (list.length) {
+        chosen = String(list[0].id || ""); // 預設第 1 個範本
+      }
+      if (chosen) sel.value = chosen;
+      if (opts && opts.apply && chosen) {
+        anLoadSelectedTemplate({ quiet: true });
       }
     }
     function anFindTemplate(id) {
@@ -1615,19 +2372,20 @@
         ? tpl.conditions
         : ((anMeta && anMeta.default_conditions) || []));
     }
-    function anLoadSelectedTemplate() {
+    function anLoadSelectedTemplate(opts) {
+      const quiet = !!(opts && opts.quiet);
       const id = document.getElementById("anTemplate").value;
       if (!id) {
-        alert("請先選擇要取出的範本。");
+        if (!quiet) alert("請先選擇範本。");
         return;
       }
       const tpl = anFindTemplate(id);
       if (!tpl) {
-        alert("找不到該範本。");
+        if (!quiet) alert("找不到該範本。");
         return;
       }
       anApplyTemplate(tpl);
-      setStatus(`已取出範本：${tpl.name || id}`);
+      setStatus(`已套用範本：${tpl.name || id}`);
     }
     function anTemplatePayload(name, overwrite) {
       const columnsText = document.getElementById("anFieldsText").value.trim();
@@ -1692,9 +2450,7 @@
           return;
         }
         if (anMeta) anMeta.templates = data.templates || [];
-        anRenderTemplates(data.templates || [], data.template && data.template.id);
-        alert(data.message || `已儲存範本：${trimmed}`);
-        setStatus(data.message || `已儲存範本：${trimmed}`);
+        anRenderTemplates(data.templates || [], data.template && data.template.id, { apply: false });
       } catch (err) {
         alert(err.message || String(err));
       }
@@ -1718,7 +2474,7 @@
           return;
         }
         if (anMeta) anMeta.templates = data.templates || [];
-        anRenderTemplates(data.templates || [], "");
+        anRenderTemplates(data.templates || [], "", { apply: true });
         alert(data.message || `已刪除範本：${label}`);
         setStatus(data.message || `已刪除範本：${label}`);
       } catch (err) {
@@ -1779,7 +2535,16 @@
       return data;
     }
     async function loadAnalysisMeta() {
-      const meeting = anSelectedMeeting();
+      const uiBefore = anCaptureUiState();
+      const prefsHint = (anMeta && anMeta.prefs) || {};
+      let meeting = anSelectedMeeting();
+      // 首次進入：優先用已存 prefs 的賽日
+      if (!anSessionReady && (!meeting || !meeting.race_date)) {
+        if (prefsHint.race_date && prefsHint.racecourse) {
+          meeting = { race_date: prefsHint.race_date, racecourse: prefsHint.racecourse };
+        }
+      }
+      // 若 UI 尚未有賽日但即將載入的 prefs 有，稍後用 meta 內 prefs
       const qs = meeting && meeting.race_date
         ? `?date=${encodeURIComponent(meeting.race_date)}&course=${encodeURIComponent(meeting.racecourse)}`
         : "";
@@ -1789,47 +2554,71 @@
         setStatus(data.message || "讀取賽馬分析失敗");
         return;
       }
-      const keepTpl = document.getElementById("anTemplate").value;
-      const hadMeeting = !!(meeting && meeting.race_date);
+      const prefs = data.prefs || {};
+      const keepTpl = uiBefore.template_id || prefs.template_id || "";
+      const wantMeeting = (uiBefore.race_date && uiBefore.racecourse)
+        ? { race_date: uiBefore.race_date, racecourse: uiBefore.racecourse }
+        : (prefs.race_date && prefs.racecourse
+          ? { race_date: prefs.race_date, racecourse: prefs.racecourse }
+          : (data.selected || null));
+      const wantRaceNo = uiBefore.race_no || prefs.race_no || "";
       anMeta = data;
-      anRenderTemplates(data.templates || [], keepTpl);
-      anRenderMeetings(data.meetings || [], data.selected || null);
-      anRenderRaceNos(data.race_nos || []);
-      // 僅首次／無賽日時套用 prefs；切換賽日只更新場次清單，避免蓋掉編輯中的範本內容
-      if (!hadMeeting) {
-        const prefs = data.prefs || {};
-        const fields = data.display_fields || [];
+      anRenderMeetings(data.meetings || [], wantMeeting);
+      // 若還原賽日與目前 meta 的 race_nos 不符，再抓一次該賽日場次
+      let raceNos = data.race_nos || [];
+      const cur = anSelectedMeeting();
+      if (
+        wantMeeting && wantMeeting.race_date &&
+        cur &&
+        (cur.race_date !== data.selected?.race_date || cur.racecourse !== data.selected?.racecourse)
+      ) {
+        try {
+          const res2 = await fetch(
+            `/api/app/analysis/meta?date=${encodeURIComponent(cur.race_date)}&course=${encodeURIComponent(cur.racecourse)}`
+          );
+          const data2 = await res2.json();
+          if (res2.ok && data2 && data2.ok !== false) {
+            raceNos = data2.race_nos || raceNos;
+            if (data2.display_fields) data.display_fields = data2.display_fields;
+          }
+        } catch (_) { /* 略過 */ }
+      }
+      anRenderRaceNos(raceNos, wantRaceNo);
+
+      const fields = data.display_fields || [];
+      // 更新排序欄位清單，但不覆蓋使用者欄位文字
+      const list = document.getElementById("anSortFieldList");
+      list.innerHTML = (fields || []).map((name) =>
+        `<option value="${anEsc(name)}"></option>`
+      ).join("");
+
+      if (!anSessionReady) {
         const defFields = prefs.columns_text
           ? anParseColumnsText(prefs.columns_text)
           : (Array.isArray(prefs.columns) && prefs.columns.length
             ? prefs.columns
             : (data.default_display_fields || fields));
         anRenderFields(fields, defFields);
-        if (prefs.columns_text) {
-          document.getElementById("anFieldsText").value = prefs.columns_text;
-        } else if (Array.isArray(prefs.columns) && prefs.columns.length) {
-          document.getElementById("anFieldsText").value = anFormatColumnsText(prefs.columns);
+        anApplyUiState({
+          ...prefs,
+          conditions: (Array.isArray(prefs.conditions) && prefs.conditions.length)
+            ? prefs.conditions
+            : (data.default_conditions || []),
+          race_no: wantRaceNo || prefs.race_no || "",
+        }, { soft: false });
+        anRenderTemplates(data.templates || [], keepTpl || prefs.template_id, { apply: false });
+        if (!document.getElementById("anTitle").value.trim()) {
+          const m = anSelectedMeeting();
+          document.getElementById("anTitle").value = anSuggestTitle(
+            m, document.getElementById("anRaceAll").checked, document.getElementById("anRaceNo").value
+          );
         }
-        anFitFieldsHeight();
-        if (prefs.sort_field) {
-          document.getElementById("anSortField").value = prefs.sort_field;
-        }
-        if (prefs.sort_ascending) document.getElementById("anSortAsc").checked = true;
-        else document.getElementById("anSortDesc").checked = true;
-        if (prefs.all_races === false) document.getElementById("anRaceOne").checked = true;
-        else document.getElementById("anRaceAll").checked = true;
-        anSyncRaceMode();
-        const conds = Array.isArray(prefs.conditions) && prefs.conditions.length
-          ? prefs.conditions
-          : (data.default_conditions || []);
-        anRenderConditions(conds);
+        anSessionReady = true;
       } else {
+        anApplyUiState(uiBefore, { soft: false });
+        anRenderTemplates(data.templates || [], keepTpl, { apply: false });
         anSyncRaceMode();
       }
-      const m = anSelectedMeeting();
-      document.getElementById("anTitle").value = anSuggestTitle(
-        m, document.getElementById("anRaceAll").checked, document.getElementById("anRaceNo").value
-      );
       setStatus(`賽馬分析：${(data.meetings || []).length} 個賽日`);
     }
 
@@ -1855,19 +2644,57 @@
       box.appendChild(p);
       box.scrollTop = box.scrollHeight;
     }
-    function aiShowTable(columns, rows) {
+    function aiEscapeAttr(s) {
+      return String(s ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/"/g, "&quot;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    }
+    function aiShowTable(columns, rows, { persist = true } = {}) {
       const cols = columns || [];
       const data = rows || [];
       document.getElementById("aiTableLabel").textContent =
         data.length ? `報表／列表（${data.length} 列 × ${cols.length} 欄）` : "報表／列表";
-      document.querySelector("#aiGrid thead tr").innerHTML =
-        cols.map((c) => `<th>${c}</th>`).join("");
-      document.querySelector("#aiGrid tbody").innerHTML = data.map((row) =>
-        `<tr>${(row || []).map((c) => `<td>${c ?? ""}</td>`).join("")}</tr>`
-      ).join("");
-      if (window.HppvGridNav) {
-        window.HppvGridNav.bind(document.getElementById("aiGrid"), { editable: false, focus: false });
+      const aiGrid = document.getElementById("aiGrid");
+      // 欄位組合變更時重設多欄排序鍵
+      if (aiGrid && aiGrid._hppvSortColCount != null && aiGrid._hppvSortColCount !== cols.length) {
+        aiGrid._hppvSortKeys = [];
       }
+      document.querySelector("#aiGrid thead tr").innerHTML =
+        cols.map((c) => `<th title="${aiEscapeAttr(c)}">${aiEscapeText(c)}</th>`).join("");
+      document.querySelector("#aiGrid tbody").innerHTML = data.map((row) =>
+        `<tr>${(row || []).map((c) => {
+          const v = c ?? "";
+          return `<td title="${aiEscapeAttr(v)}">${aiEscapeText(v)}</td>`;
+        }).join("")}</tr>`
+      ).join("");
+      finalizeDataGrid(aiGrid, Math.min(12, Math.max(8, data.length || 0)));
+      if (window.HppvGridNav) {
+        window.HppvGridNav.bind(aiGrid, { editable: false, focus: false });
+      }
+      if (persist) {
+        try {
+          if (data.length) {
+            sessionStorage.setItem(
+              "hppv_ai_last_table",
+              JSON.stringify({ columns: cols, rows: data })
+            );
+          } else {
+            sessionStorage.removeItem("hppv_ai_last_table");
+          }
+        } catch (_err) { /* ignore quota */ }
+      }
+    }
+    function aiRestoreLastTable() {
+      try {
+        const raw = sessionStorage.getItem("hppv_ai_last_table");
+        if (!raw) return;
+        const t = JSON.parse(raw);
+        if (t && Array.isArray(t.columns) && Array.isArray(t.rows) && t.rows.length) {
+          aiShowTable(t.columns, t.rows, { persist: false });
+        }
+      } catch (_err) { /* ignore */ }
     }
     async function loadAiChat() {
       const res = await fetch("/api/app/ai/chat");
@@ -1883,6 +2710,7 @@
       aiHistory = data.prompts || [];
       aiHistIndex = aiHistory.length;
       aiDraft = "";
+      aiRestoreLastTable();
     }
     async function sendAi() {
       if (aiBusy) return;
@@ -1921,11 +2749,19 @@
     }
     function aiHistoryOlder() {
       const input = document.getElementById("aiQ");
-      if (!aiHistory.length) return;
+      if (!aiHistory.length) {
+        document.getElementById("aiStatus").textContent = "尚無對話紀錄";
+        return;
+      }
       if (aiHistIndex === aiHistory.length) aiDraft = input.value;
       if (aiHistIndex > 0) {
         aiHistIndex -= 1;
         input.value = aiHistory[aiHistIndex] || "";
+        document.getElementById("aiStatus").textContent =
+          `對話 ${aiHistIndex + 1}/${aiHistory.length}`;
+      } else {
+        document.getElementById("aiStatus").textContent =
+          `對話 1/${aiHistory.length}（已是第一則）`;
       }
     }
     function aiHistoryNewer() {
@@ -1933,9 +2769,12 @@
       if (aiHistIndex < aiHistory.length - 1) {
         aiHistIndex += 1;
         input.value = aiHistory[aiHistIndex] || "";
+        document.getElementById("aiStatus").textContent =
+          `對話 ${aiHistIndex + 1}/${aiHistory.length}`;
       } else {
         aiHistIndex = aiHistory.length;
         input.value = aiDraft;
+        document.getElementById("aiStatus").textContent = "已回到目前輸入";
       }
     }
     document.getElementById("btnAiSend").addEventListener("click", sendAi);
@@ -1952,10 +2791,10 @@
         sendAi();
       } else if (e.key === "ArrowUp" && atFirst) {
         e.preventDefault();
-        aiCmdPrev();
+        aiHistoryOlder();
       } else if (e.key === "ArrowDown" && atLast) {
         e.preventDefault();
-        aiCmdNext();
+        aiHistoryNewer();
       }
     });
     let aiCmdShown = [];
@@ -2057,8 +2896,8 @@
       aiCmdBrowseIndex += 1;
       applyAiCommandAt(aiCmdBrowseIndex);
     }
-    document.getElementById("btnAiCmdPrev").addEventListener("click", () => aiCmdPrev());
-    document.getElementById("btnAiCmdNext").addEventListener("click", () => aiCmdNext());
+    document.getElementById("btnAiCmdPrev").addEventListener("click", () => aiHistoryOlder());
+    document.getElementById("btnAiCmdNext").addEventListener("click", () => aiHistoryNewer());
     document.getElementById("btnAiCmd").addEventListener("click", async () => {
       await loadAiCommands(true);
       aiCmdSelectedId = null;
@@ -2511,6 +3350,9 @@
       document.getElementById("dlResults").checked = !!s.results;
       document.getElementById("dlJockeyKing").checked = !!s.jockey_king;
       document.getElementById("dlTrainerKing").checked = !!s.trainer_king;
+      document.getElementById("dlFootballOdds").checked = !!s.football_odds;
+      document.getElementById("dlFootballResults").checked = !!s.football_results;
+      document.getElementById("dlEpl").checked = !!s.epl;
       syncDlModeEnabled();
     }
     async function loadDownloadSources(applySettings = true) {
@@ -2548,6 +3390,9 @@
         results: document.getElementById("dlResults").checked,
         jockey_king: document.getElementById("dlJockeyKing").checked,
         trainer_king: document.getElementById("dlTrainerKing").checked,
+        football_odds: document.getElementById("dlFootballOdds").checked,
+        football_results: document.getElementById("dlFootballResults").checked,
+        epl: document.getElementById("dlEpl").checked,
         time: document.getElementById("dlTime").value || "23:00",
         minutes: Number(document.getElementById("dlMinutes").value || 5),
       };
@@ -2564,7 +3409,7 @@
         alert("時間請用 24 小時制 HH:mm，例如 23:00。");
         return null;
       }
-      if (!body.horses && !body.racecard && !body.odds && !body.results && !body.jockey_king && !body.trainer_king) {
+      if (!body.horses && !body.racecard && !body.odds && !body.results && !body.jockey_king && !body.trainer_king && !body.football_odds && !body.football_results && !body.epl) {
         alert("請至少選擇一項要下載的資料。");
         return null;
       }
@@ -2721,6 +3566,9 @@
     document.getElementById("btnDlClose").addEventListener("click", () => closeTab("download"));
     document.getElementById("btnDlCancelAll").addEventListener("click", async () => {
       document.getElementById("btnDlCancelAll").disabled = true;
+      // 立刻停進度輪詢與等待中的 download_run，避免取消後仍一直打 status
+      stopDownloadStatusPolling();
+      abortDownloadRunFetch();
       setBackgroundStatus("背景下載：正在取消…");
       try {
         const res = await fetch("/api/app/download_cancel", { method: "POST" });
@@ -2729,6 +3577,7 @@
       } catch (err) {
         setBackgroundStatus("取消請求失敗：" + err);
       } finally {
+        stopDownloadStatusPolling();
         document.getElementById("btnDlCancelAll").disabled = false;
       }
     });
@@ -2746,12 +3595,36 @@
       document.getElementById("btnDlExec").disabled = true;
       try {
         const data = await runDownloadJob(body);
-        if (data.cancelled) setBackgroundStatus(data.message || "已取消下載");
-        else if (data.ok) setBackgroundStatus(data.message || "下載完成");
-        else setBackgroundStatus(data.message || "下載失敗");
-        if (data.ok && (body.jockey_king || body.trainer_king)) {
-          kingsMeetingsLoaded = false;
-          if (activeTab === "kings") await loadKings(true);
+        const doneAt = new Date().toLocaleString("zh-TW", { hour12: false });
+        const baseMsg = data.cancelled
+          ? (data.message || "已取消下載")
+          : data.ok
+            ? (data.message || "下載完成")
+            : (data.message || "下載失敗");
+        setBackgroundStatus(
+          String(baseMsg).includes("完成時間") ? baseMsg : `${baseMsg}｜完成時間 ${doneAt}`
+        );
+        if (data.ok && !data.cancelled) {
+          if (body.racecard || body.odds) {
+            racecardMeetingsLoaded = false;
+            if (activeTab === "racecard") await loadRacecard({ refreshMeetings: true });
+          }
+          if (body.results) {
+            resultsMeetingsLoaded = false;
+            const rsel = document.getElementById("resultsMeeting");
+            if (rsel) rsel.value = "";
+            if (activeTab === "results") await loadResults();
+          }
+          if (body.jockey_king || body.trainer_king) {
+            kingsMeetingsLoaded = false;
+            if (activeTab === "kings") await loadKings(true);
+          }
+          if (body.football_odds || body.football_results || body.epl) {
+            footballState.hk.meetingsLoaded = false;
+            footballState.epl.meetingsLoaded = false;
+            if (activeTab === "football") await loadFootball("hk", true);
+            if (activeTab === "football_epl") await loadFootball("epl", true);
+          }
         }
       } catch (err) {
         setBackgroundStatus("下載請求失敗：" + err);
@@ -2760,27 +3633,32 @@
       }
     });
 
-    // 間隔／指定時間由伺服器背景下載時，狀態列顯示進度與訊息
-    let _dlWasRunning = false;
-    setInterval(async () => {
-      try {
-        const data = await pollDownloadStatusOnce();
-        const running = !!data.running;
-        if (running) {
-          _dlWasRunning = true;
-        } else if (_dlWasRunning) {
-          setBackgroundStatus(data.last_result || data.display || "下載完成");
-          _dlWasRunning = false;
-        }
-      } catch (_err) {
-        /* ignore */
-      }
-    }, 1000);
-
     applyTheme(Number(localStorage.getItem("hppv_theme_idx") || "0"));
     document.getElementById("themeSelect").value = localStorage.getItem("hppv_theme_idx") || "0";
+    document.getElementById("btnFontMinus").addEventListener("click", () => nudgeFontSize(-1));
+    document.getElementById("btnFontPlus").addEventListener("click", () => nudgeFontSize(1));
+    document.addEventListener("keydown", (ev) => {
+      if (!(ev.ctrlKey || ev.metaKey) || ev.altKey) return;
+      const key = ev.key;
+      if (key === "+" || key === "=") {
+        ev.preventDefault();
+        nudgeFontSize(1);
+      } else if (key === "-" || key === "_") {
+        ev.preventDefault();
+        nudgeFontSize(-1);
+      } else if (key === "0") {
+        ev.preventDefault();
+        applyFontSize(FONT_SIZE_DEFAULT);
+      }
+    });
+    initFontSize();
     document.getElementById("racesHead").innerHTML = RACE_COLS.map((c) => `<th>${c}</th>`).join("");
+    const racecardFormHead = document.getElementById("racecardFormHead");
+    if (racecardFormHead) {
+      racecardFormHead.innerHTML = RACE_COLS.map((c) => `<th>${c}</th>`).join("");
+    }
     finalizeDataGrid(document.getElementById("racesGrid"));
+    finalizeDataGrid(document.getElementById("racecardFormGrid"));
     finalizeDataGrid(document.getElementById("horsesGrid"), 6);
     if (!localStorage.getItem("hppv_menu_style")) {
       localStorage.setItem("hppv_menu_style", "treeview");

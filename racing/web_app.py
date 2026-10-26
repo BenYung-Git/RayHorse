@@ -94,6 +94,14 @@ app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 cfg = default_config()
 DB_PATH = cfg.db_path
 RANKINGS_UI_VERSION = "rankings-ui-v3"
+_scheduler_heartbeat = datetime.now()
+
+
+@app.before_request
+def _ensure_scheduler_before_request() -> None:
+    """不論以 web／both／嵌入方式啟動，都確保間隔下載排程有跑。"""
+    _ensure_download_scheduler()
+
 
 @app.get("/ping")
 def ping():
@@ -885,53 +893,12 @@ def api_app_horse(horse_id: str):
     horse = fetch_horse_by_id(DB_PATH, horse_id)
     if horse is None:
         return jsonify({"ok": False, "error": "not_found"}), 404
+    from racing.race_record_grid import RACE_RECORD_GRID_HEADERS, race_record_grid_row
+
     records = fetch_race_records(DB_PATH, horse_id)
     flag_status = get_horse_status(DB_PATH, horse_id) or str(horse["status"] or "")
-    # 欄位順序與 Windows 往績 Grid 完全一致
-    race_columns = [
-        "日期",
-        "場地",
-        "場次",
-        "跑道/途程",
-        "途程",
-        "場地狀況",
-        "班/級別",
-        "檔",
-        "評分",
-        "騎師",
-        "練馬師",
-        "負磅",
-        "名次",
-        "沿途走位",
-        "獨贏賠率",
-        "時間",
-        "獎金",
-        "Flag",
-    ]
-    races = []
-    for r in records:
-        races.append(
-            {
-                "日期": format_race_date_display(r.race_date),
-                "場地": r.venue or "",
-                "場次": r.race_no or "",
-                "跑道/途程": r.course or "",
-                "途程": r.distance or "",
-                "場地狀況": r.going or "",
-                "班/級別": r.class_band or "",
-                "檔": r.draw or "",
-                "評分": r.rating or "",
-                "騎師": r.jockey or "",
-                "練馬師": r.trainer or "",
-                "負磅": r.handicap or "",
-                "名次": r.finish_pos or "",
-                "沿途走位": r.running_pos or "",
-                "獨贏賠率": r.win_odds or "",
-                "時間": r.time or "",
-                "獎金": r.prize or "",
-                "Flag": flag_status,
-            }
-        )
+    race_columns = list(RACE_RECORD_GRID_HEADERS)
+    races = [race_record_grid_row(r, flag_status) for r in records]
     return jsonify(
         {
             "ok": True,
@@ -954,12 +921,18 @@ def api_app_racecard():
     """排位資料欄位與 Windows RacecardPanel 相同；可用 ?date=&course= 選賽日。"""
     from racing.ui.racecard_rank_viewer import (
         COURSE_CODE_TO_DISPLAY,
+        RACECARD_DB_DISPLAY_COLUMNS,
         RACECARD_DISPLAY_COLUMNS,
         RACECARD_HIDDEN_HORSE_ID_COLUMN,
+        RACECARD_IMMEDIATE_ODDS_COLUMN,
+        RACECARD_ODDS_DIFF_COLUMN,
+        RACECARD_PREDICTED_ODDS_COLUMN,
         RACECARD_RACE_INFO_TABLE,
-        _race_no_to_label,
+        _normalize_post_time,
+        _race_tab_label,
         get_last_update_at,
         list_stored_racecard_meetings,
+        odds_diff_display,
     )
 
     init_db(DB_PATH)
@@ -1008,7 +981,8 @@ def api_app_racecard():
                     break
 
     columns = list(RACECARD_DISPLAY_COLUMNS)
-    cols_sql = ",".join(f'"{c}"' for c in columns)
+    db_columns = list(RACECARD_DB_DISPLAY_COLUMNS)
+    cols_sql = ",".join(f'"{c}"' for c in db_columns)
     horse_id_col = RACECARD_HIDDEN_HORSE_ID_COLUMN
     info_keys = (
         "event_name",
@@ -1050,7 +1024,13 @@ def api_app_racecard():
                 ).fetchall()
                 rows = []
                 for r in rows_db:
-                    item = {c: ("" if r[c] is None else str(r[c])) for c in columns}
+                    item = {
+                        c: ("" if r[c] is None else str(r[c])) for c in db_columns
+                    }
+                    item[RACECARD_ODDS_DIFF_COLUMN] = odds_diff_display(
+                        item.get(RACECARD_IMMEDIATE_ODDS_COLUMN),
+                        item.get(RACECARD_PREDICTED_ODDS_COLUMN),
+                    )
                     item["__horse_id"] = str(r["__horse_id"] or "")
                     rows.append(item)
                 info_row = conn.execute(
@@ -1063,10 +1043,16 @@ def api_app_racecard():
                     (race_date, racecourse, race_no),
                 ).fetchone()
                 info: dict[str, str] | None = None
+                post_time = None
                 if info_row is not None:
-                    info = {}
+                    from racing.standard_times import attach_standard_finish_time
+
+                    raw_info: dict[str, object] = {}
                     for k in info_keys:
-                        val = info_row[k]
+                        val: object = info_row[k]
+                        if k == "post_time":
+                            val = _normalize_post_time(val)
+                            post_time = val
                         if (
                             k == "track_name"
                             and val is not None
@@ -1074,11 +1060,14 @@ def api_app_racecard():
                             and "賽道" not in str(val)
                         ):
                             val = f"{str(val).strip()} 賽道"
-                        info[k] = "" if val is None else str(val)
+                        raw_info[k] = "" if val is None else str(val)
+                    attached = attach_standard_finish_time(raw_info) or {}
+                    info = {k: ("" if v is None else str(v)) for k, v in attached.items()}
                 races.append(
                     {
                         "race_no": race_no,
-                        "label": _race_no_to_label(race_no),
+                        "label": _race_tab_label(race_no, post_time),
+                        "post_time": post_time or "",
                         "info": info,
                         "rows": rows,
                     }
@@ -1102,13 +1091,15 @@ def api_app_racecard():
 
 @app.get("/api/app/results")
 def api_app_results():
-    """賽馬結果：可選不同賽日／場地（與 Windows 賽馬結果分頁相同）。"""
+    """賽馬結果：可選不同賽日／場地／場次（與 Windows 賽馬結果分頁相同）。"""
     from racing.race_results import (
         COURSE_CODE_TO_NAME,
         fetch_results_rows,
+        list_results_race_nos,
         list_stored_results_meetings,
+        summarize_top3_stats,
     )
-    from racing.web_utils import normalize_date_yyyy_mm_dd
+    from racing.web_utils import format_two_digit_99, normalize_date_yyyy_mm_dd
 
     init_db(DB_PATH)
     stored = list_stored_results_meetings(DB_PATH)
@@ -1128,12 +1119,21 @@ def api_app_results():
                 "racecourse": "—",
                 "racecourse_code": "",
                 "meetings": [],
+                "race_nos": [],
                 "rows": [],
+                "top3_stats": {
+                    "trainers": [],
+                    "jockeys": [],
+                    "draws": [],
+                    "handicaps": [],
+                    "odds": [],
+                },
             }
         )
 
     req_date = normalize_date_yyyy_mm_dd(request.args.get("date") or "")
     req_course = (request.args.get("course") or "").strip().upper()
+    req_race = (request.args.get("race") or "").strip()
     race_date, racecourse = stored[0]
     if req_date:
         for rd, rc in stored:
@@ -1141,7 +1141,13 @@ def api_app_results():
                 race_date, racecourse = rd, rc
                 break
 
-    rows = fetch_results_rows(DB_PATH, race_date, racecourse)
+    all_rows = fetch_results_rows(DB_PATH, race_date, racecourse)
+    race_nos = list_results_race_nos(all_rows)
+    top3 = summarize_top3_stats(all_rows)
+    rows = all_rows
+    if req_race and req_race.lower() not in {"", "all", "*"}:
+        want = format_two_digit_99(req_race)
+        rows = [r for r in all_rows if format_two_digit_99(r.get("race_no")) == want]
     return jsonify(
         {
             "ok": True,
@@ -1149,7 +1155,64 @@ def api_app_results():
             "racecourse": COURSE_CODE_TO_NAME.get(racecourse, racecourse),
             "racecourse_code": racecourse,
             "meetings": meetings,
+            "race_nos": race_nos,
+            "selected_race": req_race if req_race else "all",
             "rows": rows,
+            "top3_stats": top3,
+        }
+    )
+
+
+@app.get("/api/app/football")
+def api_app_football():
+    """足球賠率／賽果：依賽日列出賽事與盤口（scope=hk｜epl，與 Windows 分頁相同）。"""
+    from racing.football import (
+        FOOTBALL_SCOPE_HK,
+        fetch_football_display_rows,
+        list_football_dates,
+        normalize_football_date,
+        normalize_football_scope,
+    )
+
+    init_db(DB_PATH)
+    scope = normalize_football_scope(request.args.get("scope") or FOOTBALL_SCOPE_HK)
+    dates = list_football_dates(DB_PATH, scope=scope)
+    meetings = [{"race_date": d, "label": d} for d in dates]
+    if not meetings:
+        return jsonify(
+            {
+                "ok": True,
+                "scope": scope,
+                "race_date": "",
+                "meetings": [],
+                "display_rows": [],
+                "epl_rows": [],
+                "result_rows": [],
+                "odds_match_rows": [],
+                "odds_rows": [],
+                "selected_match_id": "",
+            }
+        )
+
+    req_date = normalize_football_date(request.args.get("date") or "")
+    race_date = dates[0]
+    if req_date and req_date in dates:
+        race_date = req_date
+
+    display_rows = fetch_football_display_rows(DB_PATH, race_date, scope=scope)
+    return jsonify(
+        {
+            "ok": True,
+            "scope": scope,
+            "race_date": race_date,
+            "meetings": meetings,
+            "display_rows": display_rows,
+            # 相容舊前端欄位名稱
+            "epl_rows": display_rows,
+            "result_rows": display_rows,
+            "odds_match_rows": [],
+            "odds_rows": [],
+            "selected_match_id": "",
         }
     )
 
@@ -1342,6 +1405,63 @@ def api_app_analysis_templates_delete(template_id: str):
     )
 
 
+def _analysis_prefs_from_payload(payload: dict) -> dict:
+    """從請求 JSON 正規化可寫入 race_analysis_prefs 的欄位。"""
+    from racing.race_analysis import (
+        ConditionRow,
+        format_columns_text,
+        parse_columns_text,
+    )
+
+    columns_text = str(payload.get("columns_text") or "").strip()
+    columns = payload.get("columns") or []
+    if columns_text:
+        columns = parse_columns_text(columns_text)
+    elif isinstance(columns, list):
+        columns = [str(c).strip() for c in columns if str(c).strip()]
+    else:
+        columns = []
+    if columns:
+        columns_text = format_columns_text(columns)
+    raw_conds = payload.get("conditions") or []
+    conditions = [
+        ConditionRow.from_dict(c).to_dict()
+        for c in raw_conds
+        if isinstance(c, dict)
+    ]
+    race_no = payload.get("race_no")
+    try:
+        race_no_i = None if race_no in (None, "") else int(race_no)
+    except (TypeError, ValueError):
+        race_no_i = None
+    prefs: dict = {
+        "columns": columns,
+        "columns_text": columns_text,
+        "sort_field": str(payload.get("sort_field") or "合計分數").strip() or "合計分數",
+        "sort_ascending": bool(payload.get("sort_ascending")),
+        "all_races": bool(payload.get("all_races", True)),
+        "conditions": conditions,
+        "race_date": str(payload.get("race_date") or "").strip(),
+        "racecourse": str(payload.get("racecourse") or "").strip().upper(),
+        "race_no": race_no_i,
+        "title": str(payload.get("title") or "").strip(),
+        "template_id": str(payload.get("template_id") or "").strip(),
+        "preview": str(payload.get("preview") or ""),
+    }
+    return prefs
+
+
+@app.post("/api/app/analysis/prefs")
+def api_app_analysis_prefs_save():
+    """離開賽馬分析分頁時保存目前設定（不含組成指令）。"""
+    from racing.race_analysis import save_prefs
+
+    payload = request.get_json(silent=True) or {}
+    prefs = _analysis_prefs_from_payload(payload)
+    save_prefs(cfg.data_dir, prefs)
+    return jsonify({"ok": True})
+
+
 @app.post("/api/app/analysis/build")
 def api_app_analysis_build():
     """依面板參數組成 AI 指令（可選寫入 prefs）。"""
@@ -1396,18 +1516,103 @@ def api_app_analysis_build():
         all_races=all_races,
     )
     if bool(payload.get("save_prefs", True)):
-        save_prefs(
-            cfg.data_dir,
-            {
-                "columns": columns,
-                "columns_text": columns_text,
-                "sort_field": sort_field,
-                "sort_ascending": sort_ascending,
-                "all_races": all_races,
-                "conditions": [c.to_dict() for c in conditions],
-            },
-        )
+        prefs = _analysis_prefs_from_payload(payload)
+        prefs["columns"] = columns
+        prefs["columns_text"] = columns_text
+        prefs["sort_field"] = sort_field
+        prefs["sort_ascending"] = sort_ascending
+        prefs["all_races"] = all_races
+        prefs["conditions"] = [c.to_dict() for c in conditions]
+        prefs["race_date"] = race_date
+        save_prefs(cfg.data_dir, prefs)
     return jsonify({"ok": True, "prompt": prompt, "title": title})
+
+
+def _ui_prefs_path() -> Path:
+    return Path(cfg.data_dir) / "ui_prefs.json"
+
+
+def _read_ui_prefs() -> dict[str, Any]:
+    path = _ui_prefs_path()
+    try:
+        if path.is_file():
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                return raw
+    except Exception:
+        pass
+    return {}
+
+
+def _write_ui_prefs(raw: dict[str, Any]) -> None:
+    path = _ui_prefs_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(raw, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+
+
+@app.get("/api/app/ui_prefs")
+def api_app_ui_prefs_get():
+    from racing.ui.theme import (
+        FONT_SIZE_DEFAULT,
+        FONT_SIZE_MAX,
+        FONT_SIZE_MIN,
+        clamp_font_size_pt,
+        get_grid_header_pt,
+        set_grid_font_size_pt,
+    )
+
+    raw = _read_ui_prefs()
+    pt = clamp_font_size_pt(raw.get("font_size_pt", FONT_SIZE_DEFAULT))
+    set_grid_font_size_pt(pt)
+    return jsonify(
+        {
+            "ok": True,
+            "font_size_pt": pt,
+            "font_header_pt": get_grid_header_pt(),
+            "font_size_min": FONT_SIZE_MIN,
+            "font_size_max": FONT_SIZE_MAX,
+            "font_size_default": FONT_SIZE_DEFAULT,
+            "main_menu_style": str(raw.get("main_menu_style") or "treeview"),
+        }
+    )
+
+
+@app.post("/api/app/ui_prefs")
+def api_app_ui_prefs_save():
+    from racing.ui.theme import (
+        FONT_SIZE_DEFAULT,
+        FONT_SIZE_MAX,
+        FONT_SIZE_MIN,
+        clamp_font_size_pt,
+        get_grid_header_pt,
+        set_grid_font_size_pt,
+    )
+
+    payload = request.get_json(silent=True) or {}
+    raw = _read_ui_prefs()
+    if "font_size_pt" in payload:
+        pt = clamp_font_size_pt(payload.get("font_size_pt", FONT_SIZE_DEFAULT))
+        raw["font_size_pt"] = pt
+        set_grid_font_size_pt(pt)
+    if "main_menu_style" in payload:
+        style = str(payload.get("main_menu_style") or "").strip()
+        if style:
+            raw["main_menu_style"] = style
+    _write_ui_prefs(raw)
+    pt = clamp_font_size_pt(raw.get("font_size_pt", FONT_SIZE_DEFAULT))
+    return jsonify(
+        {
+            "ok": True,
+            "font_size_pt": pt,
+            "font_header_pt": get_grid_header_pt(),
+            "font_size_min": FONT_SIZE_MIN,
+            "font_size_max": FONT_SIZE_MAX,
+            "font_size_default": FONT_SIZE_DEFAULT,
+            "main_menu_style": str(raw.get("main_menu_style") or "treeview"),
+        }
+    )
 
 
 @app.post("/api/app/backup")
@@ -1556,6 +1761,9 @@ def _download_dialog_view(raw: dict[str, Any]) -> dict[str, Any]:
         results = bool(raw.get("interval_results"))
         jockey_king = bool(raw.get("interval_jockey_king"))
         trainer_king = bool(raw.get("interval_trainer_king"))
+        football_odds = bool(raw.get("interval_football_odds"))
+        football_results = bool(raw.get("interval_football_results"))
+        epl = bool(raw.get("interval_epl"))
     elif (
         raw.get("enable_horses_task")
         or raw.get("enable_racecard_task")
@@ -1563,6 +1771,9 @@ def _download_dialog_view(raw: dict[str, Any]) -> dict[str, Any]:
         or raw.get("enable_results_task")
         or raw.get("enable_jockey_king_task")
         or raw.get("enable_trainer_king_task")
+        or raw.get("enable_football_odds_task")
+        or raw.get("enable_football_results_task")
+        or raw.get("enable_epl_task")
     ):
         mode = "schedule"
         horses = bool(raw.get("enable_horses_task"))
@@ -1571,14 +1782,20 @@ def _download_dialog_view(raw: dict[str, Any]) -> dict[str, Any]:
         results = bool(raw.get("enable_results_task"))
         jockey_king = bool(raw.get("enable_jockey_king_task"))
         trainer_king = bool(raw.get("enable_trainer_king_task"))
+        football_odds = bool(raw.get("enable_football_odds_task"))
+        football_results = bool(raw.get("enable_football_results_task"))
+        epl = bool(raw.get("enable_epl_task"))
     else:
         mode = "once"
         horses = bool(raw.get("run_horses", True))
         racecard = bool(raw.get("run_racecard", True))
         odds = bool(raw.get("run_odds", True))
-        results = bool(raw.get("run_results", True))
+        results = bool(raw.get("run_results", False))
         jockey_king = bool(raw.get("run_jockey_king", False))
         trainer_king = bool(raw.get("run_trainer_king", False))
+        football_odds = bool(raw.get("run_football_odds", False))
+        football_results = bool(raw.get("run_football_results", False))
+        epl = bool(raw.get("run_epl", False))
     preset = (
         str(raw.get("odds_task_time") or "")
         or str(raw.get("racecard_task_time") or "")
@@ -1599,6 +1816,9 @@ def _download_dialog_view(raw: dict[str, Any]) -> dict[str, Any]:
         "results": results,
         "jockey_king": jockey_king,
         "trainer_king": trainer_king,
+        "football_odds": football_odds,
+        "football_results": football_results,
+        "epl": epl,
     }
 
 
@@ -1609,6 +1829,9 @@ def _download_scope_message(
     results: bool,
     jockey_king: bool = False,
     trainer_king: bool = False,
+    football_odds: bool = False,
+    football_results: bool = False,
+    epl: bool = False,
 ) -> str:
     parts: list[str] = []
     if horses:
@@ -1625,6 +1848,12 @@ def _download_scope_message(
         parts.append("騎師王")
     if trainer_king:
         parts.append("練馬師王")
+    if football_odds:
+        parts.append("足球賠率")
+    if football_results:
+        parts.append("足球賽果")
+    if epl:
+        parts.append("英超賽程/賽果")
     return "、".join(parts)
 
 
@@ -1641,6 +1870,9 @@ def _apply_download_settings(payload: dict[str, Any]) -> str:
     results = bool(payload.get("results"))
     jockey_king = bool(payload.get("jockey_king"))
     trainer_king = bool(payload.get("trainer_king"))
+    football_odds = bool(payload.get("football_odds"))
+    football_results = bool(payload.get("football_results"))
+    epl = bool(payload.get("epl"))
     when = str(payload.get("time") or "23:00").strip() or "23:00"
     if len(when) >= 5:
         when = when[:5]
@@ -1650,9 +1882,19 @@ def _apply_download_settings(payload: dict[str, Any]) -> str:
         minutes = 5
     raw = _load_task_raw()
     scope = _download_scope_message(
-        horses, racecard, odds, results, jockey_king, trainer_king
+        horses,
+        racecard,
+        odds,
+        results,
+        jockey_king,
+        trainer_king,
+        football_odds,
+        football_results,
+        epl,
     )
     if mode == "interval":
+        # 立刻寫入 last_interval_at，避免儲存後排程在「首次手動執行」期間誤判到期
+        now_iso = datetime.now().isoformat(timespec="seconds")
         raw.update(
             {
                 "enable_interval_task": True,
@@ -1663,23 +1905,35 @@ def _apply_download_settings(payload: dict[str, Any]) -> str:
                 "interval_results": results,
                 "interval_jockey_king": jockey_king,
                 "interval_trainer_king": trainer_king,
-                "last_interval_at": "",
+                "interval_football_odds": football_odds,
+                "interval_football_results": football_results,
+                "interval_epl": epl,
+                "last_interval_at": now_iso,
                 "enable_horses_task": False,
                 "enable_racecard_task": False,
                 "enable_odds_task": False,
                 "enable_results_task": False,
                 "enable_jockey_king_task": False,
                 "enable_trainer_king_task": False,
+                "enable_football_odds_task": False,
+                "enable_football_results_task": False,
+                "enable_epl_task": False,
                 "run_horses": horses,
                 "run_racecard": racecard,
                 "run_odds": odds,
                 "run_results": results,
                 "run_jockey_king": jockey_king,
                 "run_trainer_king": trainer_king,
+                "run_football_odds": football_odds,
+                "run_football_results": football_results,
+                "run_epl": epl,
             }
         )
         _schedule_not_before = datetime.now()
-        message = f"已設定每隔 {minutes} 分鐘下載{scope}。伺服器需保持開啟。"
+        message = (
+            f"已設定每隔 {minutes} 分鐘下載{scope}。"
+            f"按「執行」先下載一次，之後由伺服器自動重複（需保持開啟）。"
+        )
     elif mode == "schedule":
         raw.update(
             {
@@ -1689,6 +1943,9 @@ def _apply_download_settings(payload: dict[str, Any]) -> str:
                 "enable_results_task": results,
                 "enable_jockey_king_task": jockey_king,
                 "enable_trainer_king_task": trainer_king,
+                "enable_football_odds_task": football_odds,
+                "enable_football_results_task": football_results,
+                "enable_epl_task": epl,
                 "enable_interval_task": False,
                 "run_horses": horses,
                 "run_racecard": racecard,
@@ -1696,6 +1953,9 @@ def _apply_download_settings(payload: dict[str, Any]) -> str:
                 "run_results": results,
                 "run_jockey_king": jockey_king,
                 "run_trainer_king": trainer_king,
+                "run_football_odds": football_odds,
+                "run_football_results": football_results,
+                "run_epl": epl,
             }
         )
         if horses:
@@ -1710,6 +1970,12 @@ def _apply_download_settings(payload: dict[str, Any]) -> str:
             raw["jockey_king_task_time"] = when
         if trainer_king:
             raw["trainer_king_task_time"] = when
+        if football_odds:
+            raw["football_odds_task_time"] = when
+        if football_results:
+            raw["football_results_task_time"] = when
+        if epl:
+            raw["epl_task_time"] = when
         _schedule_not_before = datetime.now()
         message = f"已設定每日 {when} 下載{scope}。開啟程式時不會補抓。"
     else:
@@ -1722,12 +1988,18 @@ def _apply_download_settings(payload: dict[str, Any]) -> str:
                 "enable_results_task": False,
                 "enable_jockey_king_task": False,
                 "enable_trainer_king_task": False,
+                "enable_football_odds_task": False,
+                "enable_football_results_task": False,
+                "enable_epl_task": False,
                 "run_horses": horses,
                 "run_racecard": racecard,
                 "run_odds": odds,
                 "run_results": results,
                 "run_jockey_king": jockey_king,
                 "run_trainer_king": trainer_king,
+                "run_football_odds": football_odds,
+                "run_football_results": football_results,
+                "run_epl": epl,
             }
         )
         message = (
@@ -1820,7 +2092,20 @@ def api_app_download_settings_save():
     results = bool(payload.get("results"))
     jockey_king = bool(payload.get("jockey_king"))
     trainer_king = bool(payload.get("trainer_king"))
-    if not (horses or racecard or odds or results or jockey_king or trainer_king):
+    football_odds = bool(payload.get("football_odds"))
+    football_results = bool(payload.get("football_results"))
+    epl = bool(payload.get("epl"))
+    if not (
+        horses
+        or racecard
+        or odds
+        or results
+        or jockey_king
+        or trainer_king
+        or football_odds
+        or football_results
+        or epl
+    ):
         return jsonify({"ok": False, "message": "請至少選擇一項要下載的資料。"}), 400
     message = _apply_download_settings(payload)
     return jsonify({"ok": True, "message": message})
@@ -1964,10 +2249,25 @@ def _snapshot_download_progress() -> dict[str, Any]:
         }
 
 
+def _with_download_finished_at(message: str) -> str:
+    """下載結束訊息末尾加上完成時間（可重複呼叫，會換新時間）。"""
+    when = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    msg = str(message or "").strip() or "下載完成"
+    msg = re.sub(
+        r"(?:｜)?完成時間\s*\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}",
+        "",
+        msg,
+    ).strip("｜").strip()
+    if not msg:
+        msg = "下載完成"
+    return f"{msg}｜完成時間 {when}"
+
+
 def _set_download_last_result(message: str) -> None:
+    stamped = _with_download_finished_at(message)
     with _download_progress_lock:
-        _download_progress["last_result"] = str(message or "")
-        _download_progress["message"] = str(message or "")
+        _download_progress["last_result"] = stamped
+        _download_progress["message"] = stamped
         _download_progress["current"] = 0
         _download_progress["total"] = 0
 
@@ -1986,6 +2286,9 @@ def _mark_schedule_done(
     results: bool,
     jockey_king: bool = False,
     trainer_king: bool = False,
+    football_odds: bool = False,
+    football_results: bool = False,
+    epl: bool = False,
 ) -> None:
     today = datetime.now().strftime("%Y-%m-%d")
     raw = _load_task_raw()
@@ -2001,6 +2304,12 @@ def _mark_schedule_done(
         raw["last_run_jockey_king"] = today
     if trainer_king:
         raw["last_run_trainer_king"] = today
+    if football_odds:
+        raw["last_run_football_odds"] = today
+    if football_results:
+        raw["last_run_football_results"] = today
+    if epl:
+        raw["last_run_epl"] = today
     _save_task_raw(raw)
 
 
@@ -2033,6 +2342,9 @@ def _interval_due(raw: dict[str, Any], now: datetime) -> bool:
         or raw.get("interval_results")
         or raw.get("interval_jockey_king")
         or raw.get("interval_trainer_king")
+        or raw.get("interval_football_odds")
+        or raw.get("interval_football_results")
+        or raw.get("interval_epl")
     ):
         return False
     try:
@@ -2057,6 +2369,9 @@ def _execute_download_jobs(
     do_results: bool,
     do_jockey_king: bool = False,
     do_trainer_king: bool = False,
+    do_football_odds: bool = False,
+    do_football_results: bool = False,
+    do_epl: bool = False,
 ) -> dict[str, Any]:
     """執行下載；回傳 {ok, cancelled?, message, status?}。呼叫端須已取得 _download_job_lock。"""
     from racing.challenge_kings import (
@@ -2066,6 +2381,11 @@ def _execute_download_jobs(
     )
     from racing.db import fetch_horses, upsert_race_records
     from racing.download_sources import horse_pp_template
+    from racing.football import (
+        download_epl_schedule_results,
+        download_football_odds,
+        download_football_results,
+    )
     from racing.race_results import download_race_results
     from racing.scraper import scrape_horse_past_performance, update_horses_table_from_web
     from racing.ui.racecard_rank_viewer import (
@@ -2217,6 +2537,48 @@ def _execute_download_jobs(
                 should_cancel=_download_cancelled,
             )
             parts.append(format_challenge_stats(tk))
+        if do_football_odds:
+            if _download_cancelled():
+                return {
+                    "ok": False,
+                    "cancelled": True,
+                    "message": "已取消下載｜" + ("｜".join(parts) if parts else ""),
+                }
+            fb_odds = download_football_odds(
+                DB_PATH,
+                data_dir=cfg.data_dir,
+                progress=lambda msg: _set_download_progress(msg),
+                should_cancel=_download_cancelled,
+            )
+            parts.append(fb_odds.message)
+        if do_football_results:
+            if _download_cancelled():
+                return {
+                    "ok": False,
+                    "cancelled": True,
+                    "message": "已取消下載｜" + ("｜".join(parts) if parts else ""),
+                }
+            fb_res = download_football_results(
+                DB_PATH,
+                data_dir=cfg.data_dir,
+                progress=lambda msg: _set_download_progress(msg),
+                should_cancel=_download_cancelled,
+            )
+            parts.append(fb_res.message)
+        if do_epl:
+            if _download_cancelled():
+                return {
+                    "ok": False,
+                    "cancelled": True,
+                    "message": "已取消下載｜" + ("｜".join(parts) if parts else ""),
+                }
+            epl_stats = download_epl_schedule_results(
+                DB_PATH,
+                data_dir=cfg.data_dir,
+                progress=lambda msg: _set_download_progress(msg),
+                should_cancel=_download_cancelled,
+            )
+            parts.append(epl_stats.message)
         msg = "｜".join(parts) if parts else "沒有選擇要下載的項目。"
         return {"ok": True, "message": msg}
     except Exception as exc:  # noqa: BLE001
@@ -2231,6 +2593,9 @@ def _try_run_download(
     do_results: bool,
     do_jockey_king: bool = False,
     do_trainer_king: bool = False,
+    do_football_odds: bool = False,
+    do_football_results: bool = False,
+    do_epl: bool = False,
 ) -> dict[str, Any] | None:
     """嘗試取得鎖並執行下載；忙碌時回傳 None。"""
     global _download_running
@@ -2241,6 +2606,9 @@ def _try_run_download(
         or do_results
         or do_jockey_king
         or do_trainer_king
+        or do_football_odds
+        or do_football_results
+        or do_epl
     ):
         return {"ok": False, "message": "沒有選擇要下載的項目。", "status": 400}
     if not _download_job_lock.acquire(blocking=False):
@@ -2256,7 +2624,11 @@ def _try_run_download(
             do_results=do_results,
             do_jockey_king=do_jockey_king,
             do_trainer_king=do_trainer_king,
+            do_football_odds=do_football_odds,
+            do_football_results=do_football_results,
+            do_epl=do_epl,
         )
+        result["message"] = _with_download_finished_at(str(result.get("message") or ""))
         _set_download_last_result(str(result.get("message") or ""))
         return result
     finally:
@@ -2266,9 +2638,15 @@ def _try_run_download(
 
 def _check_scheduled_downloads() -> None:
     """背景排程：間隔下載／每日指定時間（與 Windows QTimer 行為對齊）。"""
+    global _scheduler_heartbeat
+    _scheduler_heartbeat = datetime.now()
     now = datetime.now()
     raw = _load_task_raw()
     if _interval_due(raw, now):
+        print(
+            f"[間隔下載] 開始（每 {raw.get('interval_minutes') or 5} 分）"
+            f" @ {_scheduler_heartbeat.isoformat(timespec='seconds')}"
+        )
         result = _try_run_download(
             do_horses=bool(raw.get("interval_horses")),
             do_racecard=bool(raw.get("interval_racecard")),
@@ -2276,12 +2654,18 @@ def _check_scheduled_downloads() -> None:
             do_results=bool(raw.get("interval_results")),
             do_jockey_king=bool(raw.get("interval_jockey_king")),
             do_trainer_king=bool(raw.get("interval_trainer_king")),
+            do_football_odds=bool(raw.get("interval_football_odds")),
+            do_football_results=bool(raw.get("interval_football_results")),
+            do_epl=bool(raw.get("interval_epl")),
         )
         if result is None:
+            # 忙碌時不推進 last_interval_at，下一個 tick 會再試
+            print("[間隔下載] 略過：已有下載進行中（稍後重試）")
             return
+        # 間隔從「實際跑完」起算（成功／取消／失敗都記，避免緊密重試）
+        _mark_interval_done()
         if result.get("ok") and not result.get("cancelled"):
-            _mark_interval_done()
-            print(f"[間隔下載] {result.get('message')}")
+            print(f"[間隔下載] 完成：{result.get('message')}")
         elif result.get("cancelled"):
             print(f"[間隔下載] 已取消：{result.get('message')}")
         else:
@@ -2318,6 +2702,21 @@ def _check_scheduled_downloads() -> None:
         str(raw.get("last_run_trainer_king") or ""),
         now,
     )
+    due_fb_odds = bool(raw.get("enable_football_odds_task")) and _is_schedule_due(
+        str(raw.get("football_odds_task_time") or "23:00"),
+        str(raw.get("last_run_football_odds") or ""),
+        now,
+    )
+    due_fb_results = bool(raw.get("enable_football_results_task")) and _is_schedule_due(
+        str(raw.get("football_results_task_time") or "23:00"),
+        str(raw.get("last_run_football_results") or ""),
+        now,
+    )
+    due_epl = bool(raw.get("enable_epl_task")) and _is_schedule_due(
+        str(raw.get("epl_task_time") or "23:00"),
+        str(raw.get("last_run_epl") or ""),
+        now,
+    )
     if not (
         due_horses
         or due_racecard
@@ -2325,6 +2724,9 @@ def _check_scheduled_downloads() -> None:
         or due_results
         or due_jockey
         or due_trainer
+        or due_fb_odds
+        or due_fb_results
+        or due_epl
     ):
         return
     result = _try_run_download(
@@ -2334,6 +2736,9 @@ def _check_scheduled_downloads() -> None:
         do_results=due_results,
         do_jockey_king=due_jockey,
         do_trainer_king=due_trainer,
+        do_football_odds=due_fb_odds,
+        do_football_results=due_fb_results,
+        do_epl=due_epl,
     )
     if result is None:
         return
@@ -2345,6 +2750,9 @@ def _check_scheduled_downloads() -> None:
             results=due_results,
             jockey_king=due_jockey,
             trainer_king=due_trainer,
+            football_odds=due_fb_odds,
+            football_results=due_fb_results,
+            epl=due_epl,
         )
         print(f"[指定時間下載] {result.get('message')}")
     else:
@@ -2352,8 +2760,10 @@ def _check_scheduled_downloads() -> None:
 
 
 def _download_scheduler_loop() -> None:
+    global _scheduler_heartbeat
+    _scheduler_heartbeat = datetime.now()
     while True:
-        time.sleep(15)
+        time.sleep(10)
         try:
             _check_scheduled_downloads()
         except Exception as exc:  # noqa: BLE001
@@ -2371,7 +2781,7 @@ def _ensure_download_scheduler() -> None:
             name="download-scheduler",
             daemon=True,
         ).start()
-        print("[下載排程] 已啟動（每 15 秒檢查間隔／指定時間任務）")
+        print("[下載排程] 已啟動（每 10 秒檢查間隔／指定時間任務）")
 
 
 @app.post("/api/app/download_cancel")
@@ -2392,14 +2802,37 @@ def api_app_download_cancel():
 
 @app.get("/api/app/download_status")
 def api_app_download_status():
+    _ensure_download_scheduler()
     snap = _snapshot_download_progress()
     current = int(snap["current"])
     total = int(snap["total"])
     message = str(snap["message"] or "")
+    raw = _load_task_raw()
+    interval_on = bool(raw.get("enable_interval_task"))
+    try:
+        minutes = max(1, int(raw.get("interval_minutes") or 5))
+    except (TypeError, ValueError):
+        minutes = 5
+    last_text = str(raw.get("last_interval_at") or "").strip()
+    next_interval_at = ""
+    if interval_on and last_text:
+        try:
+            next_interval_at = (
+                datetime.fromisoformat(last_text) + timedelta(minutes=minutes)
+            ).isoformat(timespec="seconds")
+        except ValueError:
+            next_interval_at = ""
+    elif interval_on:
+        next_interval_at = datetime.now().isoformat(timespec="seconds")
     if bool(_download_running) and total > 0:
         display = f"下載：{message}（{current}/{total}）"
     elif bool(_download_running):
         display = f"下載：{message}" if message else "背景下載執行中…"
+    elif interval_on and next_interval_at and not bool(_download_running):
+        display = (
+            str(snap["last_result"] or message or "就緒")
+            + f"｜下次間隔下載約 {next_interval_at[11:16]}"
+        )
     else:
         display = str(snap["last_result"] or message or "就緒")
     return jsonify(
@@ -2411,6 +2844,12 @@ def api_app_download_status():
             "current": current,
             "total": total,
             "last_result": snap["last_result"],
+            "scheduler": bool(_scheduler_started),
+            "scheduler_heartbeat": _scheduler_heartbeat.isoformat(timespec="seconds"),
+            "interval_enabled": interval_on,
+            "interval_minutes": minutes,
+            "last_interval_at": last_text,
+            "next_interval_at": next_interval_at,
         }
     )
 
@@ -2427,6 +2866,9 @@ def api_app_download_run():
     do_results = bool(payload.get("results"))
     do_jockey_king = bool(payload.get("jockey_king"))
     do_trainer_king = bool(payload.get("trainer_king"))
+    do_football_odds = bool(payload.get("football_odds"))
+    do_football_results = bool(payload.get("football_results"))
+    do_epl = bool(payload.get("epl"))
     if not (
         do_horses
         or do_racecard
@@ -2434,6 +2876,9 @@ def api_app_download_run():
         or do_results
         or do_jockey_king
         or do_trainer_king
+        or do_football_odds
+        or do_football_results
+        or do_epl
     ):
         return jsonify({"ok": False, "message": "沒有選擇要下載的項目。"}), 400
     result = _try_run_download(
@@ -2443,6 +2888,9 @@ def api_app_download_run():
         do_results=do_results,
         do_jockey_king=do_jockey_king,
         do_trainer_king=do_trainer_king,
+        do_football_odds=do_football_odds,
+        do_football_results=do_football_results,
+        do_epl=do_epl,
     )
     if result is None:
         return jsonify({"ok": False, "message": "已有下載進行中，請稍後再試。"}), 409
@@ -2458,6 +2906,8 @@ def api_app_download_run():
                 f"{result.get('message')}｜之後每隔 {minutes} 分鐘自動下載"
                 "（伺服器需保持開啟）"
             )
+            result["message"] = _with_download_finished_at(str(result.get("message") or ""))
+            _set_download_last_result(str(result.get("message") or ""))
         elif mode == "schedule":
             _mark_schedule_done(
                 horses=do_horses,
@@ -2466,12 +2916,17 @@ def api_app_download_run():
                 results=do_results,
                 jockey_king=do_jockey_king,
                 trainer_king=do_trainer_king,
+                football_odds=do_football_odds,
+                football_results=do_football_results,
+                epl=do_epl,
             )
             when = str(payload.get("time") or "23:00")[:5]
             result["message"] = (
                 f"{result.get('message')}｜已啟用每日 {when} 自動下載"
                 "（伺服器需保持開啟；今日不會重跑）"
             )
+            result["message"] = _with_download_finished_at(str(result.get("message") or ""))
+            _set_download_last_result(str(result.get("message") or ""))
     return jsonify(result), status
 
 

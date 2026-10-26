@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
+from functools import cmp_to_key
 import re
 from typing import Iterable
 
@@ -28,6 +29,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+_SORT_ARROW_RE = re.compile(r"\s*[↑↓]\d*\s*$")
+_MULTI_SORT_MAX_KEYS = 4
+
 
 GRID_ROW_HEIGHT = 24
 GRID_VISIBLE_ROWS = 8
@@ -37,6 +41,40 @@ GRID_HEADER_PT = 11
 GRID_DATA_PT = 10
 FORM_LABEL_PT = 12
 FORM_FIELD_PT = 11
+
+# 介面字級（pt）：以資料列為基準，表頭 = 資料 + 1
+FONT_SIZE_MIN = 8
+FONT_SIZE_MAX = 18
+FONT_SIZE_DEFAULT = GRID_DATA_PT
+_current_data_pt: int = FONT_SIZE_DEFAULT
+
+
+def clamp_font_size_pt(raw: object) -> int:
+    try:
+        pt = int(round(float(raw)))  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        pt = FONT_SIZE_DEFAULT
+    return max(FONT_SIZE_MIN, min(FONT_SIZE_MAX, pt))
+
+
+def get_grid_data_pt() -> int:
+    return _current_data_pt
+
+
+def get_grid_header_pt() -> int:
+    return _current_data_pt + 1
+
+
+def get_grid_row_height() -> int:
+    """隨字級略調列高，避免放大後文字被裁切。"""
+    return max(22, get_grid_data_pt() + 14)
+
+
+def set_grid_font_size_pt(pt: object) -> int:
+    """設定目前 Grid／介面基準字級（pt），回傳實際套用值。"""
+    global _current_data_pt
+    _current_data_pt = clamp_font_size_pt(pt)
+    return _current_data_pt
 
 
 @dataclass(frozen=True, slots=True)
@@ -218,11 +256,16 @@ def theme_by_index(index: int) -> ThemeSpec:
 
 
 def build_app_stylesheet(theme: ThemeSpec) -> str:
+    data_pt = get_grid_data_pt()
+    header_pt = get_grid_header_pt()
+    xl_pt = data_pt + 2
+    menu_pt = data_pt + 3
+    btn_h = max(22, data_pt + 12)
     return f"""
 QWidget {{
     background: {theme.window_bg};
     color: {theme.text};
-    font-size: 10pt;
+    font-size: {data_pt}pt;
 }}
 QMainWindow, QDialog, QScrollArea, QScrollArea > QWidget > QWidget {{
     background: {theme.window_bg};
@@ -231,7 +274,7 @@ QMainWindow, QDialog, QScrollArea, QScrollArea > QWidget > QWidget {{
 QLabel {{
     background: transparent;
     color: {theme.label};
-    font-size: 11pt;
+    font-size: {header_pt}pt;
     font-weight: 700;
 }}
 QLineEdit, QComboBox, QSpinBox, QTimeEdit, QTextEdit, QPlainTextEdit, QListWidget {{
@@ -240,6 +283,7 @@ QLineEdit, QComboBox, QSpinBox, QTimeEdit, QTextEdit, QPlainTextEdit, QListWidge
     border: 1px solid {theme.border};
     border-radius: 4px;
     padding: 4px 6px;
+    font-size: {data_pt}pt;
     selection-background-color: {theme.select_row};
 }}
 QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QTimeEdit:focus,
@@ -257,9 +301,9 @@ QPushButton {{
     border: 1px solid {theme.border};
     border-radius: 4px;
     padding: 3px 10px;
-    min-height: 22px;
-    max-height: 28px;
-    font-size: 10pt;
+    min-height: {btn_h}px;
+    max-height: {btn_h + 6}px;
+    font-size: {data_pt}pt;
     font-weight: 600;
 }}
 QPushButton:hover {{
@@ -279,27 +323,32 @@ QToolBar {{
     border-bottom: 1px solid {theme.border};
     spacing: 8px;
     padding: 4px;
+    font-size: {data_pt}pt;
+}}
+QToolBar QLabel, QToolBar QComboBox, QToolBar QPushButton {{
+    font-size: {data_pt}pt;
 }}
 QStatusBar {{
     background: {theme.status_bg};
     color: {theme.text};
     border-top: 1px solid {theme.border};
+    font-size: {data_pt}pt;
 }}
 QMenuBar {{
     background: {theme.panel_bg};
     color: {theme.label};
     font-family: "Microsoft JhengHei UI", "Microsoft JhengHei", "Segoe UI";
-    font-size: 13pt;
+    font-size: {menu_pt}pt;
     font-weight: 700;
     padding: 2px 6px;
-    min-height: 32px;
+    min-height: {max(28, menu_pt + 16)}px;
 }}
 QMenuBar::item {{
     padding: 6px 14px;
     margin: 0 1px;
     color: {theme.label};
     font-family: "Microsoft JhengHei UI", "Microsoft JhengHei", "Segoe UI";
-    font-size: 13pt;
+    font-size: {menu_pt}pt;
     font-weight: 700;
     background: transparent;
 }}
@@ -312,12 +361,12 @@ QMenu {{
     color: {theme.text};
     border: 1px solid {theme.border};
     font-family: "Microsoft JhengHei UI", "Microsoft JhengHei", "Segoe UI";
-    font-size: 12pt;
+    font-size: {xl_pt}pt;
     font-weight: 600;
 }}
 QMenu::item {{
     padding: 6px 18px;
-    font-size: 12pt;
+    font-size: {xl_pt}pt;
     color: {theme.text};
 }}
 QMenu::item:selected {{
@@ -334,6 +383,7 @@ QTabBar::tab {{
     border: 1px solid {theme.border};
     padding: 8px 16px;
     margin-right: 2px;
+    font-size: {header_pt}pt;
     font-weight: 600;
 }}
 QTabBar::tab:selected {{
@@ -345,7 +395,7 @@ QHeaderView::section {{
     color: {theme.label};
     border: 1px solid {theme.border};
     padding: 4px 6px;
-    font-size: {GRID_HEADER_PT}pt;
+    font-size: {header_pt}pt;
     font-weight: 700;
 }}
 QTableWidget, QTableView {{
@@ -354,7 +404,7 @@ QTableWidget, QTableView {{
     color: {theme.text};
     gridline-color: {theme.border};
     border: 1px solid {theme.border};
-    font-size: {GRID_DATA_PT}pt;
+    font-size: {data_pt}pt;
     selection-background-color: {theme.select_row};
     selection-color: {theme.select_row_text};
 }}
@@ -413,6 +463,174 @@ def style_action_button(btn: QPushButton, icon: QStyle.StandardPixmap | None = N
             btn.setIcon(style.standardIcon(icon))
 
 
+def _strip_sort_arrow(label: str) -> str:
+    return _SORT_ARROW_RE.sub("", str(label or "")).strip()
+
+
+def capture_multi_sort_base_headers(table: QTableWidget) -> list[str]:
+    """讀取目前表頭為多欄排序基準標籤（去掉箭頭）。"""
+    labels: list[str] = []
+    for i in range(table.columnCount()):
+        header_item = table.horizontalHeaderItem(i)
+        raw = header_item.text() if header_item is not None else ""
+        labels.append(_strip_sort_arrow(raw))
+    table.setProperty("_multi_sort_base_headers", labels)
+    return labels
+
+
+def multi_sort_base_headers(table: QTableWidget) -> list[str]:
+    stored = table.property("_multi_sort_base_headers")
+    if isinstance(stored, list) and len(stored) == table.columnCount():
+        return [str(x) for x in stored]
+    return capture_multi_sort_base_headers(table)
+
+
+def refresh_multi_sort_headers(
+    table: QTableWidget, base_headers: list[str] | None = None
+) -> None:
+    """依 _multi_sort_keys 更新表頭 ↑1／↓2 標記。"""
+    bases = list(base_headers) if base_headers is not None else multi_sort_base_headers(table)
+    keys = list(getattr(table, "_multi_sort_keys", []) or [])
+    labels = list(bases)
+    for idx, (col, ascending) in enumerate(keys):
+        if 0 <= col < len(labels):
+            arrow = "↑" if ascending else "↓"
+            labels[col] = f"{bases[col]} {arrow}{idx + 1}"
+    table.setHorizontalHeaderLabels(labels)
+    table.setProperty("_multi_sort_base_headers", bases)
+
+
+def apply_multi_column_sort(
+    table: QTableWidget,
+    keys: list[tuple[int, bool]] | None = None,
+    *,
+    base_headers: list[str] | None = None,
+) -> None:
+    """依多個 (欄位, 升序) 重排列；保留各格文字與 UserRole。"""
+    if keys is not None:
+        table._multi_sort_keys = list(keys)  # type: ignore[attr-defined]
+    sort_keys: list[tuple[int, bool]] = list(
+        getattr(table, "_multi_sort_keys", []) or []
+    )
+    if not sort_keys or table.rowCount() <= 1:
+        refresh_multi_sort_headers(table, base_headers)
+        return
+
+    cols = table.columnCount()
+    snapshot: list[list[tuple[str, object, int]]] = []
+    for row in range(table.rowCount()):
+        cells: list[tuple[str, object, int]] = []
+        for col in range(cols):
+            item = table.item(row, col)
+            if item is None:
+                cells.append(("", None, int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)))
+            else:
+                cells.append(
+                    (
+                        item.text(),
+                        item.data(Qt.ItemDataRole.UserRole),
+                        int(item.textAlignment()),
+                    )
+                )
+        snapshot.append(cells)
+
+    def cmp_rows(a: list[tuple[str, object, int]], b: list[tuple[str, object, int]]) -> int:
+        for col, ascending in sort_keys:
+            if col < 0 or col >= cols:
+                continue
+            # 用暫存 item 邏輯：直接比 key
+            def key_of(cell: tuple[str, object, int]) -> tuple:
+                text, role, _align = cell
+                if not str(text or "").strip():
+                    return (1, 0, 0.0, "")
+                if isinstance(role, bool):
+                    pass
+                elif isinstance(role, (int, float)):
+                    return (0, 0, float(role), "")
+                if is_numeric_text(str(text)):
+                    try:
+                        return (0, 0, float(str(text).replace(",", "")), "")
+                    except ValueError:
+                        pass
+                return (0, 1, 0.0, str(text).casefold())
+
+            ka = key_of(a[col])
+            kb = key_of(b[col])
+            if ka < kb:
+                return -1 if ascending else 1
+            if ka > kb:
+                return 1 if ascending else -1
+        return 0
+
+    snapshot.sort(key=cmp_to_key(cmp_rows))
+    table.setSortingEnabled(False)
+    table.setRowCount(0)
+    table.setRowCount(len(snapshot))
+    for row_idx, cells in enumerate(snapshot):
+        for col_idx, (text, role, align) in enumerate(cells):
+            item = QTableWidgetItem(str(text if text is not None else ""))
+            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            item.setTextAlignment(Qt.AlignmentFlag(align))
+            if role is not None:
+                item.setData(Qt.ItemDataRole.UserRole, role)
+            table.setItem(row_idx, col_idx, item)
+    refresh_multi_sort_headers(table, base_headers)
+
+
+def install_multi_column_sort(
+    table: QTableWidget,
+    *,
+    base_headers: list[str] | None = None,
+    initial_keys: list[tuple[int, bool]] | None = None,
+) -> None:
+    """
+    點表頭排序；Shift+點可疊加次要欄（最多 4 欄）。
+    取代 QTableWidget 內建單欄 setSortingEnabled。
+    """
+    if base_headers is not None:
+        table.setProperty("_multi_sort_base_headers", list(base_headers))
+    else:
+        capture_multi_sort_base_headers(table)
+
+    table.setSortingEnabled(False)
+    header = table.horizontalHeader()
+    header.setSectionsClickable(True)
+    header.setSortIndicatorShown(False)
+    header.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    if not getattr(table, "_multi_sort_installed", False):
+        table._multi_sort_installed = True  # type: ignore[attr-defined]
+        table._multi_sort_keys = []  # type: ignore[attr-defined]
+
+        def _on_section_clicked(section: int, t: QTableWidget = table) -> None:
+            mods = QApplication.keyboardModifiers()
+            shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
+            keys: list[tuple[int, bool]] = list(getattr(t, "_multi_sort_keys", []) or [])
+            if shift:
+                updated = False
+                for i, (col, asc) in enumerate(keys):
+                    if col == section:
+                        keys[i] = (col, not asc)
+                        updated = True
+                        break
+                if not updated:
+                    keys.append((section, True))
+                keys = keys[:_MULTI_SORT_MAX_KEYS]
+            else:
+                if keys and keys[0][0] == section:
+                    keys = [(section, not keys[0][1])]
+                else:
+                    keys = [(section, True)]
+            apply_multi_column_sort(t, keys)
+
+        header.sectionClicked.connect(_on_section_clicked)
+
+    if initial_keys:
+        apply_multi_column_sort(table, initial_keys)
+    else:
+        refresh_multi_sort_headers(table)
+
+
 def configure_data_grid(
     table: QTableWidget,
     *,
@@ -420,6 +638,9 @@ def configure_data_grid(
     enable_copy: bool = True,
     fixed_viewport: bool = True,
     visible_rows: int | None = None,
+    multi_sort: bool = False,
+    multi_sort_headers: list[str] | None = None,
+    multi_sort_initial: list[tuple[int, bool]] | None = None,
 ) -> None:
     """套用 Grid 規格：列高 24px、可視列數、字型、多選、複製。"""
     table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -430,27 +651,28 @@ def configure_data_grid(
         table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
     table.setAlternatingRowColors(True)
     table.setWordWrap(False)
+    row_h = get_grid_row_height()
     table.verticalHeader().setVisible(False)
-    table.verticalHeader().setDefaultSectionSize(GRID_ROW_HEIGHT)
-    table.verticalHeader().setMinimumSectionSize(GRID_ROW_HEIGHT)
+    table.verticalHeader().setDefaultSectionSize(row_h)
+    table.verticalHeader().setMinimumSectionSize(row_h)
     table.setShowGrid(True)
     header = table.horizontalHeader()
     header.setStretchLastSection(False)
     header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
     header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
     font_h = QFont(table.font())
-    font_h.setPointSize(GRID_HEADER_PT)
+    font_h.setPointSize(get_grid_header_pt())
     font_h.setBold(True)
     header.setFont(font_h)
     font_d = QFont(table.font())
-    font_d.setPointSize(GRID_DATA_PT)
+    font_d.setPointSize(get_grid_data_pt())
     table.setFont(font_d)
     rows = GRID_VISIBLE_ROWS if visible_rows is None else max(1, int(visible_rows))
     # 資料不足也保留空間；超過可視列數則垂直捲動
     # 表頭／邊框預留需足夠，否則實際可見列會少於 visible_rows
-    header_h = max(header.sizeHint().height(), 36)
+    header_h = max(header.sizeHint().height(), max(28, get_grid_header_pt() + 20))
     frame_h = max(2, table.frameWidth() * 2)
-    min_h = GRID_ROW_HEIGHT * rows + header_h + frame_h + 12
+    min_h = row_h * rows + header_h + frame_h + 12
     table.setMinimumHeight(min_h)
     if fixed_viewport:
         table.setMaximumHeight(min_h)
@@ -459,6 +681,34 @@ def configure_data_grid(
         shortcut = QShortcut(QKeySequence.StandardKey.Copy, table)
         shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         shortcut.activated.connect(lambda t=table: copy_table_selection(t))
+    if multi_sort:
+        install_multi_column_sort(
+            table,
+            base_headers=multi_sort_headers,
+            initial_keys=multi_sort_initial,
+        )
+
+
+def apply_grid_font_to_table(table: QTableWidget) -> None:
+    """依目前字級更新單一 Grid 的字型與列高（不改動可視列數／最大高度鎖定）。"""
+    row_h = get_grid_row_height()
+    table.verticalHeader().setDefaultSectionSize(row_h)
+    table.verticalHeader().setMinimumSectionSize(row_h)
+    font_h = QFont(table.font())
+    font_h.setPointSize(get_grid_header_pt())
+    font_h.setBold(True)
+    table.horizontalHeader().setFont(font_h)
+    font_d = QFont(table.font())
+    font_d.setPointSize(get_grid_data_pt())
+    table.setFont(font_d)
+
+
+def apply_grid_font_to_widget_tree(root: QWidget | None) -> None:
+    """遞迴更新 root 底下所有 QTableWidget 字級。"""
+    if root is None:
+        return
+    for table in root.findChildren(QTableWidget):
+        apply_grid_font_to_table(table)
 
 
 def char_width_px(table: QTableWidget) -> int:

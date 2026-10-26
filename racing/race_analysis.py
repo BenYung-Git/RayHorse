@@ -19,8 +19,8 @@ CONDITION_TYPES: tuple[tuple[str, str], ...] = (
 CONDITION_TYPE_LABELS: dict[str, str] = {k: v for k, v in CONDITION_TYPES}
 
 DEFAULT_SCORING: dict[str, str] = {
-    "trainer_wins": "練馬師的贏馬紀錄為分數.",
-    "jockey_wins": "騎師的贏馬紀錄為分數.",
+    "trainer_wins": "截至上一場, 練馬師的贏馬得2分, 跑入位置得1分.",
+    "jockey_wins": "截至上一場, 騎師贏馬得2分, 跑入位置得1分.",
     "speed_rank": "相同途程的最佳速度, 最快得4分,速度第4快得1分,第5快及以後得0分. 要顯示每一條件的分數. 退出馬匹不要顯示",
     "custom": "",
 }
@@ -43,8 +43,10 @@ DISPLAY_FIELD_OPTIONS: tuple[str, ...] = (
     "今天檔位",
     "今天走位",
     "當天賠率",
+    "今天賠率",
     "預測賠率",
     "即時賠率",
+    "即時賠率-預測賠率",
     "即時位置賠率",
     "當天名次",
     "今天名次",
@@ -53,6 +55,9 @@ DISPLAY_FIELD_OPTIONS: tuple[str, ...] = (
     "騎師分數",
     "速度分數",
     "負磅分數",
+    "檔位分數",
+    "時間分數",
+    "賠率分數",
     "合計分數",
 )
 

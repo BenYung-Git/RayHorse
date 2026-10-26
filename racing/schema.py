@@ -57,6 +57,7 @@ def core_schema_sql() -> str:
           prize TEXT NOT NULL,
           handicap TEXT NOT NULL DEFAULT '',
           place_odds TEXT NOT NULL DEFAULT '',
+          sectional_time TEXT NOT NULL DEFAULT '',
           UNIQUE(
             horse_id, race_date, venue, race_no, course, distance, going, class_band, draw,
             rating, jockey, trainer, finish_pos, running_pos, win_odds, time, prize
@@ -112,6 +113,55 @@ def racecard_base_schema_sql(race_info_table: str = RACECARD_RACE_INFO_TABLE) ->
         );
         CREATE INDEX IF NOT EXISTS idx_racecard_race_info_meeting
           ON {race_info}(race_date, racecourse, race_no);
+        """
+    )
+
+
+def football_schema_sql() -> str:
+    """DDL for HKJC football matches and odds."""
+    return dedent(
+        """
+        CREATE TABLE IF NOT EXISTS football_matches (
+          match_id TEXT PRIMARY KEY,
+          front_end_id TEXT,
+          match_date TEXT,
+          kick_off_time TEXT,
+          status TEXT,
+          tournament_code TEXT,
+          tournament_name TEXT,
+          home_team TEXT,
+          away_team TEXT,
+          venue TEXT,
+          home_score TEXT DEFAULT '',
+          away_score TEXT DEFAULT '',
+          home_ht_score TEXT DEFAULT '',
+          away_ht_score TEXT DEFAULT '',
+          neutral_venue TEXT DEFAULT '',
+          odds_home TEXT DEFAULT '',
+          odds_draw TEXT DEFAULT '',
+          odds_away TEXT DEFAULT '',
+          corners TEXT DEFAULT '',
+          updated_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_football_matches_date
+          ON football_matches(match_date);
+
+        CREATE TABLE IF NOT EXISTS football_odds (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          match_id TEXT NOT NULL,
+          odds_type TEXT NOT NULL,
+          pool_name TEXT,
+          inplay INTEGER NOT NULL DEFAULT 0,
+          line_condition TEXT NOT NULL DEFAULT '',
+          main_line INTEGER NOT NULL DEFAULT 0,
+          selection TEXT NOT NULL,
+          odds TEXT,
+          status TEXT,
+          updated_at TEXT,
+          UNIQUE(match_id, odds_type, line_condition, selection, inplay)
+        );
+        CREATE INDEX IF NOT EXISTS idx_football_odds_match
+          ON football_odds(match_id);
         """
     )
 

@@ -27,14 +27,14 @@ _DEFAULT_COMMANDS: tuple[tuple[str, str], ...] = (
         "今日各場合計分數",
         "按以下條件及計分方法, 計算出今天每一場每一馬匹的總分數，"
         "由大至小排列出馬號/馬匹名稱/練馬師/騎師/日期/最快時間/當天負磅/今天負磅/"
-        "當天賠率/預測賠率/即時賠率/即時位置賠率/當天名次/今天名次/今天時間/合計分數\n"
-        "1. 練馬師的贏馬紀錄為分數.\n"
-        "2. 騎師的贏馬紀錄為分數.\n"
+        "當天賠率/今天賠率/當天名次/今天名次/合計分數\n"
+        "1. 截至上一場, 練馬師的贏馬得2分, 跑入位置得1分.\n"
+        "2. 截至上一場, 騎師贏馬得2分, 跑入位置得1分.\n"
         "3. 相同途程的最佳速度, 最快得4分,速度第4快得1分,第5快及以後得0分. 要顯示每一條件的分數. 退出馬匹不要顯示",
     ),
     (
         "排位及賽馬結果",
-        "列出2026/10/14第五場的排位及賽馬結果，按名次排列",
+        "列出2026/10/19第五場的賽馬結果，按名次排列",
     ),
     ("關鍵字查詢", "查詢【馬名或編號】的相關資料"),
     ("下載全部", "下載資料"),
@@ -433,7 +433,10 @@ def _parse_person_point_weights(question: str) -> tuple[int, int]:
 def _parse_handicap_topn_bonus(question: str) -> tuple[int, int, int] | None:
     """
     解析「負磅>=130跑入前3名得1分」→ (門檻, 前N名, 分數)。
+    若同時寫「當天負磅…今天負磅N磅」差額規則，改由 _parse_handicap_delta_score 處理。
     """
+    if _parse_handicap_delta_score(question) is not None:
+        return None
     matched = re.search(
         r"負磅\s*[>≥＞]=?\s*(\d+)\s*.{0,12}前\s*(\d+)\s*名.{0,8}得\s*(\d+)\s*分",
         question,
@@ -446,6 +449,156 @@ def _parse_handicap_topn_bonus(question: str) -> tuple[int, int, int] | None:
     if not matched:
         return None
     return int(matched.group(1)), int(matched.group(2)), int(matched.group(3))
+
+
+def _parse_handicap_delta_score(
+    question: str,
+) -> tuple[int, int, int, int, int] | None:
+    """
+    解析「當天負磅 >= 今天負磅10磅及跑入前3名得1分, 當天負磅 <= 今天負磅10磅減1分」
+    → (加重差額, 前N名, 加分, 減輕差額, 減分；減分通常為負)。
+    意義：當天負磅比今天重至少 N 磅且當天入前M → 加分；當天比今天輕至少 N 磅 → 減分。
+    """
+    if "當天負磅" not in (question or "") or "今天負磅" not in question:
+        return None
+    heavier = re.search(
+        r"當天負磅\s*[≥>=＞]\s*=?\s*今天負磅\s*(\d+)\s*磅?"
+        r".{0,16}前\s*(\d+)\s*名.{0,10}(?:得|加)\s*(\d+)\s*分",
+        question,
+    )
+    if not heavier:
+        heavier = re.search(
+            r"當天負磅\s*[≥>=＞]\s*=?\s*今天負磅\s*[＋+]?(\d+)\s*磅?"
+            r".{0,20}(?:得|加)\s*(\d+)\s*分",
+            question,
+        )
+        if heavier and not re.search(r"前\s*\d+\s*名", question[heavier.start() : heavier.end() + 8]):
+            # 無「前N名」時仍接受，預設前3
+            pass
+    lighter = re.search(
+        r"當天負磅\s*[≤<=＜]\s*=?\s*今天負磅\s*(\d+)\s*磅?.{0,12}(?:減|得\-?)\s*(\d+)\s*分",
+        question,
+    )
+    if not heavier and not lighter:
+        return None
+    if heavier:
+        up_delta = int(heavier.group(1))
+        if heavier.lastindex >= 3:
+            top_n = int(heavier.group(2))
+            up_pts = int(heavier.group(3))
+        else:
+            top_n = 3
+            up_pts = int(heavier.group(2))
+    else:
+        up_delta, top_n, up_pts = 10, 3, 0
+    if lighter:
+        down_delta = int(lighter.group(1))
+        down_pts = -int(lighter.group(2))
+    else:
+        down_delta, down_pts = up_delta, 0
+    return up_delta, top_n, up_pts, down_delta, down_pts
+
+
+def _parse_standard_time_score(question: str) -> tuple[int, int] | None:
+    """
+    解析「最快時間 < 標準完成時間加1分, 最快時間 > 標準完成時間減1分」
+    → (較快加分, 較慢加減分；較慢通常為負)。
+    """
+    if "標準完成時間" not in (question or ""):
+        return None
+    under = re.search(
+        r"最快時間\s*[<＜]\s*標準完成時間.{0,6}(?:加|得)\s*(\d+)\s*分",
+        question,
+    )
+    over = re.search(
+        r"最快時間\s*[>＞]\s*標準完成時間.{0,6}(?:減|得\-?)\s*(\d+)\s*分",
+        question,
+    )
+    if not under and not over:
+        # 寬鬆：標準完成時間…加N…減M
+        under = re.search(r"標準完成時間.{0,16}加\s*(\d+)\s*分", question)
+        over = re.search(r"標準完成時間.{0,24}減\s*(\d+)\s*分", question)
+    if not under and not over:
+        return None
+    under_pts = int(under.group(1)) if under else 0
+    over_pts = -int(over.group(1)) if over else 0
+    return under_pts, over_pts
+
+
+def _parse_draw_score(question: str) -> tuple[int, int, int, int] | None:
+    """
+    解析「今天檔位<=3加1分, >=10 減1分」
+    → (低檔上限, 低檔加分, 高檔下限, 高檔加減分；高檔通常為負)。
+    """
+    if "檔位" not in (question or ""):
+        return None
+    low = re.search(
+        r"(?:今天|今日)?檔位\s*[≤<=＜]\s*=?\s*(\d+)\s*(?:加|得)\s*(\d+)\s*分",
+        question,
+    )
+    high = re.search(
+        r"(?:今天|今日)?檔位.{0,12}[≥>=＞]\s*=?\s*(\d+)\s*(?:減|得\-?)\s*(\d+)\s*分",
+        question,
+    )
+    if not high:
+        high = re.search(
+            r"[≥>=＞]\s*=?\s*(\d+)\s*(?:減|得\-?)\s*(\d+)\s*分",
+            question,
+        )
+        # 僅在「檔位」規則段附近才採用寬鬆 high（避免誤抓負磅）
+        if high and "檔位" not in question[max(0, high.start() - 24) : high.end()]:
+            high = None
+    if not low and not high:
+        return None
+    le_max = int(low.group(1)) if low else 0
+    le_pts = int(low.group(2)) if low else 0
+    ge_min = int(high.group(1)) if high else 99
+    ge_pts = -int(high.group(2)) if high else 0
+    return le_max, le_pts, ge_min, ge_pts
+
+
+def _parse_odds_diff_score(question: str) -> tuple[float, int] | None:
+    """
+    解析「即時賠率-預測賠率<0加2分」
+    → (差值門檻, 加分)：當 即時−預測 < 門檻 時加分。
+    缺即時或預測賠率則不加分。
+    """
+    q = question or ""
+    if "即時" not in q or "預測" not in q:
+        return None
+    matched = re.search(
+        r"即時\s*賠率\s*[\-－−]\s*預測\s*賠率\s*[<＜]\s*(-?\d+(?:\.\d+)?)\s*"
+        r"(?:加|得)\s*(\d+)\s*分",
+        q,
+    )
+    if not matched:
+        matched = re.search(
+            r"即時.{0,4}賠率.{0,6}預測.{0,4}賠率.{0,8}[<＜]\s*(-?\d+(?:\.\d+)?)\s*"
+            r".{0,6}(?:加|得)\s*(\d+)\s*分",
+            q,
+        )
+    if not matched:
+        return None
+    try:
+        threshold = float(matched.group(1))
+        pts = int(matched.group(2))
+    except ValueError:
+        return None
+    return threshold, pts
+
+
+def _parse_draw_int(raw: object) -> int | None:
+    text = str(raw or "").strip()
+    if not text or text in {"—", "-", "--"}:
+        return None
+    matched = re.search(r"(\d{1,2})", text)
+    if not matched:
+        return None
+    try:
+        n = int(matched.group(1))
+    except ValueError:
+        return None
+    return n if 1 <= n <= 20 else None
 
 
 def _fmt_pct(numer: int, denom: int) -> str:
@@ -703,7 +856,8 @@ def _help_text() -> str:
         "- 今天贏馬的騎師排列\n"
         "- 今天贏馬的練馬師排列\n"
         "- 計算今天每一場合計分數（顯示練馬師／騎師／速度各條件分數＋預測／即時賠率＋合計）\n"
-        "- 列出 2026/10/14 第五場的排位及賽馬結果，按名次排列\n"
+        "- 列出 2026/10/19 第五場的賽馬結果，按名次排列\n"
+        "- 列出 2026/10/19 第五場的排位及賽馬結果，按名次排列\n"
         "- 查詢 H123 或馬名的相關資料\n"
         "下載操作：\n"
         "- 下載資料／下載一次（馬匹往績＋排位＋即時賠率）\n"
@@ -713,7 +867,7 @@ def _help_text() -> str:
         "- 開啟下載（打開下載設定視窗）\n"
         "其他系統操作：開啟排位、開啟馬匹、更新馬匹資料、任務設定。\n"
         "文件：按「上傳文件」，再問「在文件中找……」或「統計文件」。\n"
-        "上／下鍵可叫回上一句或下一句提問。左邊「指令」可從 AI_COMMAND 選 CMD_PROMPT。"
+        "上／下鍵可叫回上一對話或下一對話。左邊「選取指令」可從 AI_COMMAND 選 CMD_PROMPT。"
         "日常開放式問題可在「模型設定」填入相容 OpenAI 的服務；留空則只使用本機資料。"
     )
 
@@ -1133,12 +1287,21 @@ def _is_combined_win_score_question(question: str) -> bool:
 
 
 def _wants_speed_rank_points(question: str) -> bool:
-    """問題是否要求把相同途程最佳速度名次化成分數。"""
-    if any(word in question for word in ("速度", "最快", "途程")) and any(
-        word in question for word in ("分", "計分", "名次", "第1名", "第１名")
-    ):
+    """問題是否要求把相同途程最佳速度名次化成分數（非「最快 vs 標準完成時間」）。"""
+    # 已寫明與標準完成時間比較時，不套用名次分
+    if _parse_standard_time_score(question) is not None:
+        return False
+    if re.search(r"第\s*[1１一]\s*名\s*得\s*\d+\s*分", question):
         return True
-    if re.search(r"第\s*1\s*名\s*得\s*\d+\s*分", question):
+    if "相同途程" in question and any(w in question for w in ("分", "計分", "名次", "速度")):
+        return True
+    if "速度分數" in question or "速度名次" in question:
+        return True
+    if re.search(r"第\s*[1-5１-５]\s*快.{0,6}得\s*\d+\s*分", question):
+        return True
+    if "速度" in question and any(
+        word in question for word in ("名次", "第1名", "第１名", "第1→", "最快→", "最快得")
+    ):
         return True
     return False
 
@@ -1345,6 +1508,8 @@ _SCORE_COLUMN_ALIAS: dict[str, str] = {
     "速度": "速度",
     "速度(m/s)": "速度",
     "最快時間": "最快時間",
+    "標準完成時間": "標準完成時間",
+    "標準時間": "標準完成時間",
     # 「時間」易與「今天時間」混淆；單獨「時間」仍指最快時間
     "負磅": "今天負磅",
     "磅": "今天負磅",
@@ -1359,9 +1524,15 @@ _SCORE_COLUMN_ALIAS: dict[str, str] = {
     "獨贏賠率": "即時賠率",
     "賽果賠率": "即時賠率",
     "排位賠率": "即時賠率",
+    "即時賠率-預測賠率": "即時賠率-預測賠率",
+    "即時賠率－預測賠率": "即時賠率-預測賠率",
+    "即時減預測": "即時賠率-預測賠率",
     "當天賠率": "當天賠率",
     "當日賠率": "當天賠率",
     "當天獨贏賠率": "當天賠率",
+    # 「今天賠率」＝排位即時獨贏賠率（賽前／賽中）
+    "今天賠率": "今天賠率",
+    "今日賠率": "今天賠率",
     "即時位置賠率": "即時位置賠率",
     "位置賠率": "即時位置賠率",
     "今天時間": "今天時間",
@@ -1408,6 +1579,11 @@ _SCORE_COLUMN_ALIAS: dict[str, str] = {
     "當天走位": "當天走位",
     "當日走位": "當天走位",
     "負磅分數": "負磅分數",
+    "時間分數": "時間分數",
+    "標準時間分數": "時間分數",
+    "檔位分數": "檔位分數",
+    "賠率分數": "賠率分數",
+    "即時預測差分數": "賠率分數",
 }
 
 
@@ -1430,19 +1606,30 @@ def _inject_condition_score_columns(
     *,
     include_speed: bool,
     include_handicap_bonus: bool = False,
+    include_std_time_score: bool = False,
+    include_draw_score: bool = False,
+    include_odds_diff_score: bool = False,
 ) -> list[str]:
     """在合計分數前插入各條件分數欄（若尚未列入）。"""
     # 顯示名稱用「…分數」；同時相容舊稱「…勝場／速度分」
     extras = ["練馬師分數", "騎師分數"]
     if include_speed:
         extras.append("速度分數")
+    if include_std_time_score:
+        extras.append("時間分數")
     if include_handicap_bonus:
         extras.append("負磅分數")
+    if include_draw_score:
+        extras.append("檔位分數")
+    if include_odds_diff_score:
+        extras.append("賠率分數")
     # 若指令已用舊欄名，不再重複插入
     legacy = {
         "練馬師分數": "練馬師勝場",
         "騎師分數": "騎師勝場",
         "速度分數": "速度分",
+        "時間分數": "標準時間分數",
+        "賠率分數": "即時預測差分數",
     }
     out = list(columns)
     for col in extras:
@@ -1598,34 +1785,78 @@ def _unique_day_finishes(
     回傳 [(jockey, trainer, horse_id, venue, finish_pos), ...]。
     同一馬同一場地同日只計一次（避免往績 race_no 與賽果 race_no 重複入庫）。
     """
+    return [
+        (j, t, h, v, f)
+        for j, t, h, v, f, _rn in _unique_day_finishes_with_race_no(conn, date_key)
+    ]
+
+
+def _unique_day_finishes_with_race_no(
+    conn: sqlite3.Connection,
+    date_key: str,
+    *,
+    venue_code: str | None = None,
+) -> list[tuple[str, str, str, str, str, int]]:
+    """
+    指定賽日有名次的列（已去重），附當日場次號。
+    回傳 [(jockey, trainer, horse_id, venue, finish_pos, meeting_race_no), ...]。
+    """
+    from .race_results import _season_race_to_meeting_map, infer_venue_code
+
     raw_dates = _dates_for_key(conn, date_key)
     if not raw_dates:
         return []
     marks = ",".join("?" * len(raw_dates))
-    rows = conn.execute(
-        f"""
-        SELECT jockey, trainer, horse_id, venue, finish_pos
-        FROM race_records
-        WHERE race_date IN ({marks});
-        """,
-        raw_dates,
-    ).fetchall()
-    seen: set[tuple[str, str, str]] = set()
-    out: list[tuple[str, str, str, str, str]] = []
+    try:
+        rows = conn.execute(
+            f"""
+            SELECT jockey, trainer, horse_id, venue, course, finish_pos, race_no
+            FROM race_records
+            WHERE race_date IN ({marks});
+            """,
+            raw_dates,
+        ).fetchall()
+    except sqlite3.OperationalError:
+        rows = conn.execute(
+            f"""
+            SELECT jockey, trainer, horse_id, venue, '' AS course,
+                   finish_pos, race_no
+            FROM race_records
+            WHERE race_date IN ({marks});
+            """,
+            raw_dates,
+        ).fetchall()
+    season_map = _season_race_to_meeting_map(
+        [str(r["race_no"] or "").strip() for r in rows]
+    )
+    want_venue = (venue_code or "").strip().upper()
+    seen: set[tuple[str, str, str, int]] = set()
+    out: list[tuple[str, str, str, str, str, int]] = []
     for row in rows:
         if _finish_number(row["finish_pos"]) is None:
+            continue
+        meeting_no = _meeting_race_no_int(row["race_no"], season_map)
+        if meeting_no is None:
             continue
         jockey = _normalize_person_name(str(row["jockey"] or ""))
         trainer = _normalize_person_name(str(row["trainer"] or ""))
         hid = str(row["horse_id"] or "").strip()
-        venue = str(row["venue"] or "").strip().upper()
+        venue_raw = str(row["venue"] or "").strip()
+        course_raw = str(row["course"] or "").strip()
+        venue = infer_venue_code(venue_raw, course_raw) or venue_raw.upper()
+        if want_venue and venue != want_venue and venue_raw.upper() != want_venue:
+            continue
         finish = str(row["finish_pos"] or "").strip()
-        # 以馬＋場地去重；無 horse_id 時退回人＋場地＋騎／練組合避免全吞
-        dedupe_key = (hid or f"{jockey}|{trainer}", venue, hid or jockey or trainer)
+        dedupe_key = (
+            hid or f"{jockey}|{trainer}",
+            venue,
+            hid or jockey or trainer,
+            meeting_no,
+        )
         if dedupe_key in seen:
             continue
         seen.add(dedupe_key)
-        out.append((jockey, trainer, hid, venue, finish))
+        out.append((jockey, trainer, hid, venue, finish, meeting_no))
     return out
 
 
@@ -1655,12 +1886,40 @@ def _person_score_counts_on_date(
     place_pts: int = 0,
 ) -> tuple[dict[str, int], dict[str, int]]:
     """
-    回傳 (騎師分數, 練馬師分數)。
+    回傳 (騎師分數, 練馬師分數)（全日累計）。
     贏馬累加 win_pts、入位（2–3 名）累加 place_pts。
+    """
+    return _person_score_counts_before_race(
+        conn,
+        date_key,
+        before_race_no=99,
+        win_pts=win_pts,
+        place_pts=place_pts,
+    )
+
+
+def _person_score_counts_before_race(
+    conn: sqlite3.Connection,
+    date_key: str,
+    *,
+    before_race_no: int,
+    venue_code: str | None = None,
+    win_pts: int = 1,
+    place_pts: int = 0,
+) -> tuple[dict[str, int], dict[str, int]]:
+    """
+    回傳截至「上一場」的 (騎師分數, 練馬師分數)。
+    只計 meeting_race_no < before_race_no 的賽果；第 1 場（before=1）為空＝0 分。
     """
     jockey_scores: dict[str, int] = {}
     trainer_scores: dict[str, int] = {}
-    for jockey, trainer, _hid, _venue, finish in _unique_day_finishes(conn, date_key):
+    if before_race_no <= 1:
+        return jockey_scores, trainer_scores
+    for jockey, trainer, _hid, _venue, finish, race_no in _unique_day_finishes_with_race_no(
+        conn, date_key, venue_code=venue_code
+    ):
+        if race_no >= before_race_no:
+            continue
         pts = 0
         if _is_win(finish):
             pts = win_pts
@@ -1676,11 +1935,24 @@ def _person_score_counts_on_date(
 
 
 def _is_list_racecard_results_question(question: str) -> bool:
-    """列出／顯示某場「排位」與「賽馬結果」。"""
+    """列出／顯示某場「排位」及／或「賽馬結果」（可只寫其中一項）。"""
     if re.search(r"下載|更新", question):
         return False
+    # 合計／計分指令常含「顯示…分數」或「排位的即時賠率」，不可誤判成列排位
+    if _is_combined_win_score_question(question):
+        return False
     has_rc = "排位" in question
-    has_res = bool(re.search(r"賽馬結果|賽果", question))
+    # 「賽果賠率／賽果名次」等欄位名不算要求列出賽馬結果
+    has_res = bool(re.search(r"賽馬結果|(?<![赔賠名])賽果(?![赔賠名率次])", question))
+    if not (has_rc or has_res):
+        return False
+    # 「列出／顯示／查…」或已指定日期／場次
+    if re.search(r"列出|顯示|查詢|查看|報表", question):
+        return True
+    if _parse_race_no(question) is not None:
+        return True
+    if _parse_date_in_question(question):
+        return True
     return has_rc and has_res
 
 
@@ -1738,11 +2010,25 @@ def _results_meeting_for_date(
     return hits[0]
 
 
-def _list_racecard_and_results(conn: sqlite3.Connection, question: str) -> AiAnswer:
-    """列出指定賽日某場的排位，並併入該場賽馬結果。"""
+def _list_racecard_and_results(
+    conn: sqlite3.Connection, question: str, *, db_path: Path | None = None
+) -> AiAnswer:
+    """列出指定賽日某場的排位及／或賽馬結果（可只問其中一項）。"""
+    from .race_results import fetch_results_rows
+
     race_no = _parse_race_no(question)
     if race_no is None:
-        return AiAnswer("請指定場次，例如「列出 2026/10/14 第五場的排位及賽馬結果」。")
+        return AiAnswer(
+            "請指定場次，例如「列出 2026/10/19 第五場的賽馬結果，按名次排列」"
+            "或「列出 … 排位及賽馬結果」。"
+        )
+    want_rc = "排位" in question
+    # 「賽果賠率／賽果名次」等欄位名不算要求列出賽馬結果
+    want_res = bool(re.search(r"賽馬結果|(?<![赔賠名])賽果(?![赔賠名率次])", question))
+    if not want_rc and not want_res:
+        # 語意不清時預設只列賽馬結果（此路徑需已由呼叫端判定為列出類問題）
+        want_res = True
+
     venue = _parse_venue(question) or None
     asked_date_key = _parse_date_in_question(question)
     race_date = ""
@@ -1760,39 +2046,39 @@ def _list_racecard_and_results(conn: sqlite3.Connection, question: str) -> AiAns
     else:
         meeting = _latest_racecard_meeting(conn, venue)
         if meeting is None:
-            return AiAnswer("資料庫尚無排位資料，請先下載排位，或在指令中寫明日期（yyyy/MM/dd）。")
-        race_date, racecourse = meeting
+            try:
+                from .race_results import infer_venue_code
+
+                row = conn.execute(
+                    """
+                    SELECT race_date, venue, course FROM race_records
+                    WHERE race_date GLOB '[0-9][0-9][0-9][0-9]/[0-9][0-9]/[0-9][0-9]'
+                    ORDER BY race_date DESC LIMIT 1
+                    """
+                ).fetchone()
+            except sqlite3.OperationalError:
+                row = None
+            if row is None:
+                return AiAnswer(
+                    "資料庫尚無排位／賽果，請先下載，或在指令中寫明日期（yyyy/MM/dd）。"
+                )
+            race_date = _fmt_display_date(str(row["race_date"] or ""))
+            racecourse = infer_venue_code(
+                str(row["venue"] or ""), str(row["course"] or "")
+            )
+            if venue and racecourse and venue != racecourse:
+                return AiAnswer(
+                    f"最新賽果不是{ {'ST':'沙田','HV':'跑馬地','FC':'從化'}.get(venue, venue) }，"
+                    "請在指令中寫明日期。"
+                )
+        else:
+            race_date, racecourse = meeting
 
     date_label = _fmt_display_date(race_date)
     venue_label = {"ST": "沙田", "HV": "跑馬地", "FC": "從化"}.get(racecourse, racecourse)
 
     starters: list[sqlite3.Row] = []
-    try:
-        starters = list(
-            conn.execute(
-                """
-                SELECT COALESCE("馬名", '') AS horse_name,
-                       COALESCE("練馬師", '') AS trainer,
-                       COALESCE("騎師", '') AS jockey,
-                       COALESCE("馬號", '') AS horse_no,
-                       COALESCE("負磅", '') AS handicap,
-                       COALESCE("檔位", '') AS draw,
-                       COALESCE("評分", '') AS rating,
-                       COALESCE("即時賠率", COALESCE("預測賠率", '')) AS card_odds,
-                       COALESCE(horse_id, '') AS horse_id,
-                       COALESCE(後備, '否') AS reserve
-                FROM racecard_starters
-                WHERE race_date = ?
-                  AND racecourse = ?
-                  AND race_no = ?
-                  AND COALESCE(後備, '否') = '否'
-                ORDER BY CAST(COALESCE("馬號", '0') AS INTEGER), id;
-                """,
-                (race_date, racecourse, race_no),
-            ).fetchall()
-        )
-    except sqlite3.OperationalError:
-        # 舊庫可能沒有即時／預測賠率欄
+    if want_rc:
         try:
             starters = list(
                 conn.execute(
@@ -1804,7 +2090,7 @@ def _list_racecard_and_results(conn: sqlite3.Connection, question: str) -> AiAns
                            COALESCE("負磅", '') AS handicap,
                            COALESCE("檔位", '') AS draw,
                            COALESCE("評分", '') AS rating,
-                           '' AS card_odds,
+                           COALESCE("即時賠率", COALESCE("預測賠率", '')) AS card_odds,
                            COALESCE(horse_id, '') AS horse_id,
                            COALESCE(後備, '否') AS reserve
                     FROM racecard_starters
@@ -1818,151 +2104,169 @@ def _list_racecard_and_results(conn: sqlite3.Connection, question: str) -> AiAns
                 ).fetchall()
             )
         except sqlite3.OperationalError:
-            starters = []
+            try:
+                starters = list(
+                    conn.execute(
+                        """
+                        SELECT COALESCE("馬名", '') AS horse_name,
+                               COALESCE("練馬師", '') AS trainer,
+                               COALESCE("騎師", '') AS jockey,
+                               COALESCE("馬號", '') AS horse_no,
+                               COALESCE("負磅", '') AS handicap,
+                               COALESCE("檔位", '') AS draw,
+                               COALESCE("評分", '') AS rating,
+                               '' AS card_odds,
+                               COALESCE(horse_id, '') AS horse_id,
+                               COALESCE(後備, '否') AS reserve
+                        FROM racecard_starters
+                        WHERE race_date = ?
+                          AND racecourse = ?
+                          AND race_no = ?
+                          AND COALESCE(後備, '否') = '否'
+                        ORDER BY CAST(COALESCE("馬號", '0') AS INTEGER), id;
+                        """,
+                        (race_date, racecourse, race_no),
+                    ).fetchall()
+                )
+            except sqlite3.OperationalError:
+                starters = []
 
-    result_by_hid: dict[str, sqlite3.Row] = {}
-    result_rows: list[sqlite3.Row] = []
-    try:
-        result_rows = list(
-            conn.execute(
-                """
-                SELECT horse_id, finish_pos, draw, jockey, trainer, time, win_odds, distance,
-                       running_pos
-                FROM race_records
-                WHERE race_date = ?
-                  AND UPPER(TRIM(venue)) = ?
-                  AND CAST(race_no AS INTEGER) = ?
-                ORDER BY CAST(finish_pos AS INTEGER), id;
-                """,
-                (date_label if date_label else race_date, racecourse, race_no),
-            ).fetchall()
-        )
-        # 若 race_date 字串與正規化後不同，再試原始 race_date
-        if not result_rows and race_date != date_label:
-            result_rows = list(
-                conn.execute(
-                    """
-                    SELECT horse_id, finish_pos, draw, jockey, trainer, time, win_odds, distance,
-                           running_pos
-                    FROM race_records
-                    WHERE race_date = ?
-                      AND UPPER(TRIM(venue)) = ?
-                      AND CAST(race_no AS INTEGER) = ?
-                    ORDER BY CAST(finish_pos AS INTEGER), id;
-                    """,
-                    (race_date, racecourse, race_no),
-                ).fetchall()
-            )
-    except sqlite3.OperationalError:
-        result_rows = []
+    # 賽果：用與「賽馬結果」頁相同邏輯（含馬季場次→當日場次）
+    result_by_hid: dict[str, dict[str, str]] = {}
+    result_list: list[dict[str, str]] = []
+    if want_res and db_path is not None:
+        try:
+            all_res = fetch_results_rows(Path(db_path), date_label or race_date, racecourse)
+            race_key = f"{int(race_no):02d}"
+            result_list = [
+                r
+                for r in all_res
+                if str(r.get("race_no") or "").strip() in {race_key, str(int(race_no))}
+            ]
+            for r in result_list:
+                hid = str(r.get("horse_id") or "").strip()
+                if hid:
+                    result_by_hid[hid] = r
+        except Exception:
+            result_list = []
+            result_by_hid = {}
 
-    for row in result_rows:
-        hid = str(row["horse_id"] or "").strip()
-        if hid:
-            result_by_hid[hid] = row
-
-    columns = [
-        "馬號",
-        "馬名",
-        "檔位",
-        "騎師",
-        "練馬師",
-        "負磅",
-        "評分",
-        "排位賠率",
-        "名次",
-        "完成時間",
-        "賽果賠率",
-        "途程",
-    ]
+    # 只問排位：不要附賽果欄；只問賽果：不要附排位賠率欄；兩者才合併
+    if want_rc and want_res:
+        columns = [
+            "馬號", "馬名", "檔位", "騎師", "練馬師", "負磅", "評分",
+            "排位賠率", "名次", "完成時間", "賽果賠率", "途程",
+        ]
+    elif want_rc:
+        columns = [
+            "馬號", "馬名", "檔位", "騎師", "練馬師", "負磅", "評分",
+            "排位賠率",
+        ]
+    else:
+        columns = [
+            "馬號", "馬名", "檔位", "騎師", "練馬師", "負磅", "評分",
+            "名次", "完成時間", "獨贏", "途程",
+        ]
     rows: list[list[str]] = []
     used_hids: set[str] = set()
+    finish_col = columns.index("名次") if "名次" in columns else -1
 
-    if starters:
+    if starters and want_rc:
         for s in starters:
             hid = str(s["horse_id"] or "").strip()
-            res = result_by_hid.get(hid) if hid else None
+            res = result_by_hid.get(hid) if (want_res and hid) else None
             if res is not None and hid:
                 used_hids.add(hid)
+            if want_res:
+                rows.append(
+                    [
+                        _fmt99(s["horse_no"]),
+                        str(s["horse_name"] or "").strip() or "—",
+                        _fmt99(s["draw"]) or "—",
+                        str(s["jockey"] or "").strip() or "—",
+                        str(s["trainer"] or "").strip() or "—",
+                        str(s["handicap"] or "").strip() or "—",
+                        str(s["rating"] or "").strip() or "—",
+                        str(s["card_odds"] or "").strip() or "—",
+                        _fmt99(res.get("finish_pos")) if res else "—",
+                        str(res.get("time") or "").strip() if res else "—",
+                        str(res.get("win_odds") or "").strip() if res else "—",
+                        str(res.get("distance") or "").strip() if res else "—",
+                    ]
+                )
+            else:
+                rows.append(
+                    [
+                        _fmt99(s["horse_no"]),
+                        str(s["horse_name"] or "").strip() or "—",
+                        _fmt99(s["draw"]) or "—",
+                        str(s["jockey"] or "").strip() or "—",
+                        str(s["trainer"] or "").strip() or "—",
+                        str(s["handicap"] or "").strip() or "—",
+                        str(s["rating"] or "").strip() or "—",
+                        str(s["card_odds"] or "").strip() or "—",
+                    ]
+                )
+        if want_res:
+            for hid, res in result_by_hid.items():
+                if hid in used_hids:
+                    continue
+                rows.append(
+                    [
+                        _fmt99(res.get("horse_no")) or "—",
+                        str(res.get("name_zh") or "").strip() or hid,
+                        _fmt99(res.get("draw")) or "—",
+                        str(res.get("jockey") or "").strip() or "—",
+                        str(res.get("trainer") or "").strip() or "—",
+                        str(res.get("handicap") or "").strip() or "—",
+                        str(res.get("rating") or "").strip() or "—",
+                        "—",
+                        _fmt99(res.get("finish_pos")) or "—",
+                        str(res.get("time") or "").strip() or "—",
+                        str(res.get("win_odds") or "").strip() or "—",
+                        str(res.get("distance") or "").strip() or "—",
+                    ]
+                )
+    elif result_list and want_res:
+        for res in result_list:
             rows.append(
                 [
-                    _fmt99(s["horse_no"]),
-                    str(s["horse_name"] or "").strip() or "—",
-                    _fmt99(s["draw"]) or "—",
-                    str(s["jockey"] or "").strip() or "—",
-                    str(s["trainer"] or "").strip() or "—",
-                    str(s["handicap"] or "").strip() or "—",
-                    str(s["rating"] or "").strip() or "—",
-                    str(s["card_odds"] or "").strip() or "—",
-                    _fmt99(res["finish_pos"]) if res else "—",
-                    str(res["time"] or "").strip() if res else "—",
-                    str(res["win_odds"] or "").strip() if res else "—",
-                    str(res["distance"] or "").strip() if res else "—",
-                ]
-            )
-        # 排位沒對上、但仍有賽果的馬
-        for hid, res in result_by_hid.items():
-            if hid in used_hids:
-                continue
-            name = ""
-            try:
-                hr = conn.execute(
-                    "SELECT name_zh FROM horses WHERE horse_id = ? LIMIT 1", (hid,)
-                ).fetchone()
-                if hr:
-                    name = str(hr["name_zh"] or "")
-            except sqlite3.OperationalError:
-                name = ""
-            rows.append(
-                [
-                    "—",
-                    name or hid,
-                    _fmt99(res["draw"]) or "—",
-                    str(res["jockey"] or "").strip() or "—",
-                    str(res["trainer"] or "").strip() or "—",
-                    "—",
-                    "—",
-                    "—",
-                    _fmt99(res["finish_pos"]) or "—",
-                    str(res["time"] or "").strip() or "—",
-                    str(res["win_odds"] or "").strip() or "—",
-                    str(res["distance"] or "").strip() or "—",
-                ]
-            )
-    elif result_rows:
-        names = _name_map(conn, [str(r["horse_id"] or "") for r in result_rows])
-        for res in result_rows:
-            hid = str(res["horse_id"] or "")
-            rows.append(
-                [
-                    "—",
-                    names.get(hid, hid) or "—",
-                    _fmt99(res["draw"]) or "—",
-                    str(res["jockey"] or "").strip() or "—",
-                    str(res["trainer"] or "").strip() or "—",
-                    "—",
-                    "—",
-                    "—",
-                    _fmt99(res["finish_pos"]) or "—",
-                    str(res["time"] or "").strip() or "—",
-                    str(res["win_odds"] or "").strip() or "—",
-                    str(res["distance"] or "").strip() or "—",
+                    _fmt99(res.get("horse_no")) or "—",
+                    str(res.get("name_zh") or "").strip() or "—",
+                    _fmt99(res.get("draw")) or "—",
+                    str(res.get("jockey") or "").strip() or "—",
+                    str(res.get("trainer") or "").strip() or "—",
+                    str(res.get("handicap") or "").strip() or "—",
+                    str(res.get("rating") or "").strip() or "—",
+                    _fmt99(res.get("finish_pos")) or "—",
+                    str(res.get("time") or "").strip() or "—",
+                    str(res.get("win_odds") or "").strip() or "—",
+                    str(res.get("distance") or "").strip() or "—",
                 ]
             )
     else:
+        missing = []
+        if want_rc:
+            missing.append("排位")
+        if want_res:
+            missing.append("賽馬結果")
         return AiAnswer(
-            f"{date_label} {venue_label}（{racecourse}）第{race_no}場：找不到排位或賽馬結果。"
+            f"{date_label} {venue_label}（{racecourse}）第{race_no}場："
+            f"找不到{'／'.join(missing)}。"
         )
 
     sort_by_finish = bool(
-        re.search(r"(按|依|以|照)\s*名次\s*(排列|排序|排|由小到大)?", question)
-        or re.search(r"名次\s*(排列|排序)", question)
+        finish_col >= 0
+        and (
+            re.search(r"(按|依|以|照)\s*名次\s*(排列|排序|排|由小到大)?", question)
+            or re.search(r"名次\s*(排列|排序)", question)
+            or (want_res and not want_rc)
+        )
     )
     sort_note = ""
-    if sort_by_finish:
-        # 名次欄 index=8；無賽果（—／非數字）排最後，其餘由小到大
+    if sort_by_finish and finish_col >= 0:
         def _finish_sort_key(row: list[str]) -> tuple[int, int, str]:
-            pos = str(row[8] if len(row) > 8 else "").strip()
+            pos = str(row[finish_col] if len(row) > finish_col else "").strip()
             if not pos or pos in {"—", "-", "---"} or not pos.isdigit():
                 return (1, 999, str(row[0] if row else ""))
             return (0, int(pos), str(row[0] if row else ""))
@@ -1970,10 +2274,18 @@ def _list_racecard_and_results(conn: sqlite3.Connection, question: str) -> AiAns
         rows.sort(key=_finish_sort_key)
         sort_note = "｜已按名次排列"
 
-    n_res = sum(1 for r in rows if r[8] != "—")
+    n_res = (
+        sum(1 for r in rows if finish_col >= 0 and r[finish_col] != "—")
+        if finish_col >= 0
+        else 0
+    )
+    parts = [f"{date_label} {venue_label}（{racecourse}）第{race_no}場"]
+    if want_rc:
+        parts.append(f"排位 {len(starters)} 匹")
+    if want_res:
+        parts.append(f"賽果 {n_res} 匹")
     return AiAnswer(
-        f"{date_label} {venue_label}（{racecourse}）第{race_no}場｜"
-        f"排位 {len(starters) if starters else 0} 匹｜已對上賽果 {n_res} 匹{sort_note}。",
+        "｜".join(parts) + f"{sort_note}。",
         columns=columns,
         rows=rows,
     )
@@ -1982,10 +2294,23 @@ def _list_racecard_and_results(conn: sqlite3.Connection, question: str) -> AiAns
 def _race_distance_m(
     conn: sqlite3.Connection, race_date: str, racecourse: str, race_no: int
 ) -> int | None:
+    info = _race_info_fields(conn, race_date, racecourse, race_no)
+    if not info:
+        return None
+    return parse_distance_m(str(info.get("distance") or ""))
+
+
+def _race_info_fields(
+    conn: sqlite3.Connection, race_date: str, racecourse: str, race_no: int
+) -> dict[str, str] | None:
     try:
         row = conn.execute(
             """
-            SELECT distance FROM racecard_race_info
+            SELECT COALESCE(meeting_venue, '') AS meeting_venue,
+                   COALESCE(race_course_area, '') AS race_course_area,
+                   COALESCE(distance, '') AS distance,
+                   COALESCE(race_class, '') AS race_class
+            FROM racecard_race_info
             WHERE race_date = ? AND racecourse = ? AND race_no = ?
             LIMIT 1;
             """,
@@ -1995,7 +2320,31 @@ def _race_distance_m(
         return None
     if not row:
         return None
-    return parse_distance_m(str(row["distance"] or ""))
+    return {
+        "meeting_venue": str(row["meeting_venue"] or ""),
+        "race_course_area": str(row["race_course_area"] or ""),
+        "distance": str(row["distance"] or ""),
+        "race_class": str(row["race_class"] or ""),
+    }
+
+
+def _standard_finish_for_race(
+    conn: sqlite3.Connection, race_date: str, racecourse: str, race_no: int
+) -> str:
+    from .standard_times import lookup_standard_finish_time
+
+    info = _race_info_fields(conn, race_date, racecourse, race_no)
+    if not info:
+        return ""
+    return (
+        lookup_standard_finish_time(
+            meeting_venue=info["meeting_venue"] or racecourse,
+            race_course_area=info["race_course_area"],
+            distance=info["distance"],
+            race_class=info["race_class"],
+        )
+        or ""
+    )
 
 
 def _score_starters_for_race(
@@ -2008,6 +2357,11 @@ def _score_starters_for_race(
     trainer_wins: dict[str, int],
     include_speed: bool,
     handicap_bonus: tuple[int, int, int] | None = None,
+    handicap_delta: tuple[int, int, int, int, int] | None = None,
+    std_time_score: tuple[int, int] | None = None,
+    draw_score: tuple[int, int, int, int] | None = None,
+    odds_diff_score: tuple[float, int] | None = None,
+    include_speed_rank: bool = True,
 ) -> tuple[list[dict[str, str | int]], int | None]:
     """計算單場正選馬合計分數列；回傳 (scored_rows, distance_m)。"""
     from .web_utils import format_two_digit_99, normalize_date_yyyy_mm_dd
@@ -2072,13 +2426,19 @@ def _score_starters_for_race(
     if not starters:
         return [], _race_distance_m(conn, race_date, racecourse, race_no)
 
-    distance_m = _race_distance_m(conn, race_date, racecourse, race_no) if include_speed else None
+    need_best = bool(include_speed or std_time_score is not None)
+    distance_m = (
+        _race_distance_m(conn, race_date, racecourse, race_no) if need_best else None
+    )
+    standard_finish = _standard_finish_for_race(conn, race_date, racecourse, race_no)
+    standard_secs = parse_race_time_seconds(standard_finish) if standard_finish else None
     speed_places: dict[str, int] = {}
     best_info: dict[str, BestSpeedInfo] = {}
-    if include_speed and distance_m:
+    if need_best and distance_m:
         starter_ids, id_list = _collect_starter_horse_ids(conn, starters)
         best_info = _best_speed_info_by_horse(conn, id_list, distance_m)
-        speed_places = _speed_places_for_starters(conn, starters, distance_m)
+        if include_speed and include_speed_rank:
+            speed_places = _speed_places_for_starters(conn, starters, distance_m)
     else:
         starter_ids = [str(s["horse_id"] or "").strip() for s in starters]
 
@@ -2165,7 +2525,7 @@ def _score_starters_for_race(
         hid = hid0
         resolved, info = (
             _resolve_best_for_starter(conn, row, hid, best_info)
-            if include_speed
+            if need_best
             else (hid, None)
         )
         if resolved:
@@ -2173,7 +2533,11 @@ def _score_starters_for_race(
         t_wins = trainer_wins.get(trainer_key, 0)
         j_wins = jockey_wins.get(jockey_key, 0)
         place = speed_places.get(hid) if hid else None
-        s_pts = _speed_place_points(place) if include_speed else 0
+        s_pts = (
+            _speed_place_points(place)
+            if include_speed and include_speed_rank
+            else 0
+        )
         horse_no = 0
         try:
             horse_no = int(str(row["horse_no"] or "0").strip() or "0")
@@ -2232,17 +2596,70 @@ def _score_starters_for_race(
             result_place = place_odds_by_hid[hid]
         elif hid0 and hid0 in place_odds_by_hid:
             result_place = place_odds_by_hid[hid0]
+        # 今天賠率＝排位即時獨贏；無即時時才回退今日賽果獨贏
         live_val = live or result_odds or "—"
+        today_odds_val = live or result_odds or "—"
         pred_val = pred or "—"
         place_val = live_place or result_place or "—"
         h_pts = 0
-        if handicap_bonus is not None:
+        if handicap_delta is not None:
+            up_delta, top_n, up_pts, down_delta, down_pts = handicap_delta
+            day_hc = _parse_handicap_int(day_handicap)
+            today_hc = _parse_handicap_int(today_handicap)
+            day_fn = _finish_number(day_finish)
+            if day_hc is not None and today_hc is not None:
+                if (
+                    up_pts
+                    and day_hc >= today_hc + up_delta
+                    and day_fn is not None
+                    and 1 <= day_fn <= top_n
+                ):
+                    h_pts = up_pts
+                elif down_pts and day_hc <= today_hc - down_delta:
+                    h_pts = down_pts
+        elif handicap_bonus is not None:
             thr, top_n, bonus = handicap_bonus
+            # 今日已有名次用今日負磅；否則用最快時間當日往績（賽前可計）
             hc = _parse_handicap_int(today_handicap)
             fn = _finish_number(today_finish)
+            if fn is None:
+                hc = _parse_handicap_int(day_handicap)
+                fn = _finish_number(day_finish)
             if hc is not None and fn is not None and hc >= thr and 1 <= fn <= top_n:
                 h_pts = bonus
-        total = t_wins + j_wins + s_pts + h_pts
+        time_pts = 0
+        if std_time_score is not None and standard_secs is not None:
+            under_pts, over_pts = std_time_score
+            best_secs = seconds if seconds is not None else (
+                parse_race_time_seconds(str(info[1])) if info else None
+            )
+            if best_secs is not None:
+                if best_secs < standard_secs:
+                    time_pts = under_pts
+                elif best_secs > standard_secs:
+                    time_pts = over_pts
+        d_pts = 0
+        if draw_score is not None:
+            le_max, le_pts, ge_min, ge_pts = draw_score
+            draw_n = _parse_draw_int(today_draw)
+            if draw_n is not None:
+                if draw_n <= le_max:
+                    d_pts = le_pts
+                elif draw_n >= ge_min:
+                    d_pts = ge_pts
+        # 即時−預測：只用排位欄位（不含賽果回退），缺一則不加分
+        odds_diff_val = "—"
+        live_n = _parse_odds(live)
+        pred_n = _parse_odds(pred)
+        if live_n is not None and pred_n is not None:
+            diff = live_n - pred_n
+            odds_diff_val = _fmt_odds(f"{diff:.2f}".rstrip("0").rstrip("."))
+        o_pts = 0
+        if odds_diff_score is not None and live_n is not None and pred_n is not None:
+            thr, pts = odds_diff_score
+            if (live_n - pred_n) < thr:
+                o_pts = pts
+        total = t_wins + j_wins + s_pts + h_pts + time_pts + d_pts + o_pts
         scored.append(
             {
                 "total": total,
@@ -2266,22 +2683,28 @@ def _score_starters_for_race(
                 "走位": today_running,
                 "評分": str(row["rating"] or "").strip() or "—",
                 "當天賠率": day_odds if day_odds else "—",
+                "今天賠率": today_odds_val,
                 "預測賠率": pred_val,
                 "即時賠率": live_val,
                 "即時位置賠率": place_val,
+                "即時賠率-預測賠率": odds_diff_val,
                 "賠率": live_val if live_val != "—" else pred_val,
                 "練馬師分數": t_wins,
                 "騎師分數": j_wins,
                 "速度分數": s_pts,
                 "負磅分數": h_pts,
+                "時間分數": time_pts,
+                "檔位分數": d_pts,
+                "賠率分數": o_pts,
                 "練馬師勝場": t_wins,
                 "騎師勝場": j_wins,
                 "速度分": s_pts,
                 "速度名次": place if place else "—",
                 "日期": best_date,
                 "最快時間": (info[1] if info else "—"),
+                "標準完成時間": standard_finish or "—",
                 "今天時間": today_time,
-                "速度": _fmt_speed(distance_m, seconds) if include_speed else "—",
+                "速度": _fmt_speed(distance_m, seconds) if need_best else "—",
                 "當天名次": day_finish,
                 "今天名次": today_finish,
                 "名次": today_finish,
@@ -2326,25 +2749,50 @@ def _race_combined_win_score(conn: sqlite3.Connection, question: str) -> AiAnswe
         return AiAnswer(
             f"排位中找不到 {race_date} {racecourse} 的場次，請確認已下載排位。"
         )
-    include_speed = _wants_speed_rank_points(question) or (
+    std_time_score = _parse_standard_time_score(question)
+    draw_score = _parse_draw_score(question)
+    odds_diff_score = _parse_odds_diff_score(question)
+    include_speed_rank = _wants_speed_rank_points(question)
+    include_speed = include_speed_rank or (
         ("速度" in question or "最快" in question)
         and any(word in question for word in ("分", "計分", "總分", "合計", "條件"))
     )
     want_cols = _parse_score_display_columns(question)
     if want_cols and any(
-        c in want_cols for c in ("日期", "速度", "最快時間", "速度分", "速度名次", "速度分數")
+        c in want_cols
+        for c in (
+            "日期",
+            "速度",
+            "最快時間",
+            "標準完成時間",
+            "速度分",
+            "速度名次",
+            "速度分數",
+            "時間分數",
+        )
     ):
         include_speed = True
+    if std_time_score is not None:
+        include_speed = True
     win_pts, place_pts = _parse_person_point_weights(question)
-    handicap_bonus = _parse_handicap_topn_bonus(question)
-
-    jockey_wins, trainer_wins = _person_score_counts_on_date(
-        conn, date_key, win_pts=win_pts, place_pts=place_pts
+    handicap_delta = _parse_handicap_delta_score(question)
+    handicap_bonus = (
+        None if handicap_delta is not None else _parse_handicap_topn_bonus(question)
     )
+
     scored: list[dict[str, str | int]] = []
     missing: list[int] = []
     distances: list[str] = []
     for race_no in race_nos:
+        # 練馬師／騎師：截至上一場累計（第1場＝0），非全日總分
+        jockey_wins, trainer_wins = _person_score_counts_before_race(
+            conn,
+            date_key,
+            before_race_no=int(race_no),
+            venue_code=racecourse,
+            win_pts=win_pts,
+            place_pts=place_pts,
+        )
         part, distance_m = _score_starters_for_race(
             conn,
             race_date=race_date,
@@ -2354,6 +2802,11 @@ def _race_combined_win_score(conn: sqlite3.Connection, question: str) -> AiAnswe
             trainer_wins=trainer_wins,
             include_speed=include_speed,
             handicap_bonus=handicap_bonus,
+            handicap_delta=handicap_delta,
+            std_time_score=std_time_score,
+            draw_score=draw_score,
+            odds_diff_score=odds_diff_score,
+            include_speed_rank=include_speed_rank,
         )
         if not part:
             missing.append(race_no)
@@ -2374,21 +2827,29 @@ def _race_combined_win_score(conn: sqlite3.Connection, question: str) -> AiAnswe
 
     multi = len(race_nos) > 1
     ascending = bool(re.search(r"由小至大|由低至高|升序", question))
-    score_sign = 1 if ascending else -1
-    scored.sort(
-        key=lambda item: (
-            int(item.get("race_no_int", 0)),
-            score_sign * int(item["total"]),
-            int(item["horse_no"]),
-            str(item["馬匹名稱"]),
-        )
-        if multi
-        else (
-            score_sign * int(item["total"]),
-            int(item["horse_no"]),
-            str(item["馬匹名稱"]),
-        )
+    # 預設：先場次、場內再合計分數；僅在「全部合排／跨場」等句式才改為全表按分數
+    sort_overall = bool(
+        re.search(r"全部合排|跨場排列|不分場|所有馬匹合[併併]?排|總表排列", question)
     )
+    score_sign = 1 if ascending else -1
+    if multi and not sort_overall:
+        scored.sort(
+            key=lambda item: (
+                int(item.get("race_no_int", 0)),
+                score_sign * int(item["total"]),
+                int(item["horse_no"]),
+                str(item["馬匹名稱"]),
+            )
+        )
+    else:
+        scored.sort(
+            key=lambda item: (
+                score_sign * int(item["total"]),
+                int(item.get("race_no_int", 0)),
+                int(item["horse_no"]),
+                str(item["馬匹名稱"]),
+            )
+        )
     for index, item in enumerate(scored, start=1):
         item["排名"] = index
 
@@ -2402,8 +2863,13 @@ def _race_combined_win_score(conn: sqlite3.Connection, question: str) -> AiAnswe
 
     columns = _inject_condition_score_columns(
         columns,
-        include_speed=include_speed,
-        include_handicap_bonus=handicap_bonus is not None,
+        include_speed=include_speed_rank,
+        include_handicap_bonus=(
+            handicap_bonus is not None or handicap_delta is not None
+        ),
+        include_std_time_score=std_time_score is not None,
+        include_draw_score=draw_score is not None,
+        include_odds_diff_score=odds_diff_score is not None,
     )
     # 多場時若指令未寫「場次」，加在最前以便辨識
     if multi and "場次" not in columns:
@@ -2420,26 +2886,51 @@ def _race_combined_win_score(conn: sqlite3.Connection, question: str) -> AiAnswe
         race_txt = f"第{race_nos[0]}場至第{race_nos[-1]}場"
     miss_txt = f"；缺排位：{','.join(f'第{n}場' for n in missing)}" if missing else ""
     dist_txt = "、".join(distances) if distances else "（未找到途程，速度分數以 0 計）"
-    person_rule = f"練馬師／騎師：贏馬{win_pts}分"
+    person_rule = f"練馬師／騎師（截至上一場）：贏馬{win_pts}分"
     if place_pts:
         person_rule += f"、入位{place_pts}分"
+    person_rule += "；第1場為0"
     parts = [person_rule]
-    if include_speed:
+    if include_speed_rank:
         parts.append("速度分數（同途程最快→4、第2→3、第3→2、第4→1、第5快起→0）")
-    if handicap_bonus is not None:
+    if std_time_score is not None:
+        u, o = std_time_score
+        parts.append(
+            f"最快時間vs標準完成時間：較快{'+' if u >= 0 else ''}{u}、"
+            f"較慢{'+' if o >= 0 else ''}{o}"
+        )
+    if handicap_delta is not None:
+        up_d, top_n, up_p, down_d, down_p = handicap_delta
+        parts.append(
+            f"當天負磅≥今天+{up_d}且當天前{top_n}名→{up_p}；"
+            f"當天負磅≤今天−{down_d}→{down_p}"
+        )
+    elif handicap_bonus is not None:
         thr, top_n, bonus = handicap_bonus
-        parts.append(f"負磅>={thr}且今日前{top_n}名→{bonus}分")
+        parts.append(f"負磅>={thr}且前{top_n}名→{bonus}分（今日賽果優先，否則用最快當日）")
+    if draw_score is not None:
+        le_max, le_pts, ge_min, ge_pts = draw_score
+        parts.append(f"今天檔位≤{le_max}→{le_pts}、≥{ge_min}→{ge_pts}")
+    if odds_diff_score is not None:
+        thr, pts = odds_diff_score
+        parts.append(f"即時賠率−預測賠率<{thr:g}→+{pts}（缺即時／預測不加）")
     score_cols = ["練馬師分數", "騎師分數"]
-    if include_speed:
+    if include_speed_rank:
         score_cols.append("速度分數")
-    if handicap_bonus is not None:
+    if std_time_score is not None:
+        score_cols.append("時間分數")
+    if handicap_bonus is not None or handicap_delta is not None:
         score_cols.append("負磅分數")
+    if draw_score is not None:
+        score_cols.append("檔位分數")
+    if odds_diff_score is not None:
+        score_cols.append("賠率分數")
     text = (
         f"{win_day} {racecourse} {race_txt}"
         + (f"，途程 {dist_txt}" if include_speed else "")
         + f"{miss_txt}。\n"
         f"合計分數 = {' + '.join(score_cols)}（{ '；'.join(parts) }），"
-        f"{'各場內' if multi else ''}由大至小排列（共 {len(rows)} 匹）。\n"
+        f"{'各場內' if (multi and not sort_overall) else ''}由{'小至大' if ascending else '大至小'}排列（共 {len(rows)} 匹）。\n"
         f"各條件分數欄：{'／'.join(score_cols)}。\n"
         f"顯示欄位：{'／'.join(columns)}"
     )
@@ -3054,12 +3545,13 @@ def _local_answer(db_path: Path, question: str) -> AiAnswer:
 
         if "最佳途程" in text:
             return _answer_for_horse(conn, text, _best_distance)
-        # 列出排位＋賽馬結果／合計分數須優先於「賠率」查詢
-        # （合計指令常含「贏馬紀錄」+「賠率」欄，勿誤判成查獨贏賠率）
-        if _is_list_racecard_results_question(text):
-            return _list_racecard_and_results(conn, text)
+        # 合計分數優先：計分指令常含「顯示…分數」或「排位的即時賠率」，
+        # 不可先被「列出排位／賽果」路徑吃掉。
         if _is_combined_win_score_question(text):
             return _race_combined_win_score(conn, text)
+        # 列出排位＋賽馬結果須優先於「賠率」查詢
+        if _is_list_racecard_results_question(text):
+            return _list_racecard_and_results(conn, text, db_path=db_path)
         if any(word in text for word in ("贏的賠率", "贏馬賠率", "獨贏賠率")) or (
             "賠率" in text
             and "贏" in text

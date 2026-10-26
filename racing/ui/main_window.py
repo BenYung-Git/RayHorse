@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Qt, QThread, QTime, QTimer, Signal, QStringListModel
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
     QRadioButton,
     QSizePolicy,
     QSpinBox,
+    QSplitter,
     QStatusBar,
     QStyle,
     QTabWidget,
@@ -53,16 +54,21 @@ from .main_menu import (
 )
 from .theme import (
     THEMES,
+    apply_grid_font_to_widget_tree,
+    apply_multi_column_sort,
     build_app_stylesheet,
+    clamp_font_size_pt,
     configure_data_grid,
     copy_table_selection,
-    format_date_yyyy_mm_dd,
-    format_integer,
-    format_money,
-    format_two_digit_99,
+    FONT_SIZE_DEFAULT,
+    FONT_SIZE_MAX,
+    FONT_SIZE_MIN,
+    get_grid_data_pt,
     make_form_label,
     make_table_item,
+    refresh_multi_sort_headers,
     resize_grid_columns_to_content,
+    set_grid_font_size_pt,
     show_copyable_message,
     style_action_button,
     theme_by_index,
@@ -93,6 +99,8 @@ from .race_fetch_dialog import (
     RaceFetchStats,
 )
 from .challenge_kings_viewer import ChallengeKingsPanel
+from ..football import FOOTBALL_SCOPE_EPL, FOOTBALL_SCOPE_HK
+from .football_viewer import FootballPanel
 from .race_analysis_panel import RaceAnalysisPanel
 from .racecard_rank_viewer import RacecardPanel
 from .race_results_viewer import RaceResultsPanel
@@ -128,7 +136,7 @@ class TaskSettings:
     run_horses: bool = True
     run_racecard: bool = True
     run_odds: bool = True
-    run_results: bool = True
+    run_results: bool = False
     last_run_results: str = ""
     interval_results: bool = False
     enable_results_task: bool = False
@@ -143,6 +151,21 @@ class TaskSettings:
     trainer_king_task_time: str = "05:00"
     last_run_jockey_king: str = ""
     last_run_trainer_king: str = ""
+    run_football_odds: bool = False
+    run_football_results: bool = False
+    interval_football_odds: bool = False
+    interval_football_results: bool = False
+    enable_football_odds_task: bool = False
+    enable_football_results_task: bool = False
+    football_odds_task_time: str = "05:00"
+    football_results_task_time: str = "05:00"
+    last_run_football_odds: str = ""
+    last_run_football_results: str = ""
+    run_epl: bool = False
+    interval_epl: bool = False
+    enable_epl_task: bool = False
+    epl_task_time: str = "05:00"
+    last_run_epl: str = ""
     # 任務執行前備份資料庫（避免 schema/資料更新影響測試回歸）
     enable_backup: bool = False
     backup_folder: str = ""
@@ -286,7 +309,17 @@ class DownloadDialog(QDialog):
         self._interval = QRadioButton("每隔一段時間下載")
         if settings.enable_interval_task:
             self._interval.setChecked(True)
-        elif settings.enable_horses_task or settings.enable_racecard_task or settings.enable_odds_task:
+        elif (
+            settings.enable_horses_task
+            or settings.enable_racecard_task
+            or settings.enable_odds_task
+            or settings.enable_results_task
+            or settings.enable_jockey_king_task
+            or settings.enable_trainer_king_task
+            or settings.enable_football_odds_task
+            or settings.enable_football_results_task
+            or settings.enable_epl_task
+        ):
             self._scheduled.setChecked(True)
         else:
             self._once.setChecked(True)
@@ -313,6 +346,9 @@ class DownloadDialog(QDialog):
         self._cb_results = QCheckBox("賽馬結果")
         self._cb_jockey_king = QCheckBox("騎師王")
         self._cb_trainer_king = QCheckBox("練馬師王")
+        self._cb_football_odds = QCheckBox("足球賠率")
+        self._cb_football_results = QCheckBox("足球賽果")
+        self._cb_epl = QCheckBox("英超賽程/賽果（近1年）")
         if settings.enable_interval_task:
             self._cb_horses.setChecked(settings.interval_horses)
             self._cb_racecard.setChecked(settings.interval_racecard)
@@ -320,6 +356,9 @@ class DownloadDialog(QDialog):
             self._cb_results.setChecked(settings.interval_results)
             self._cb_jockey_king.setChecked(settings.interval_jockey_king)
             self._cb_trainer_king.setChecked(settings.interval_trainer_king)
+            self._cb_football_odds.setChecked(settings.interval_football_odds)
+            self._cb_football_results.setChecked(settings.interval_football_results)
+            self._cb_epl.setChecked(settings.interval_epl)
         elif (
             settings.enable_horses_task
             or settings.enable_racecard_task
@@ -327,6 +366,9 @@ class DownloadDialog(QDialog):
             or settings.enable_results_task
             or settings.enable_jockey_king_task
             or settings.enable_trainer_king_task
+            or settings.enable_football_odds_task
+            or settings.enable_football_results_task
+            or settings.enable_epl_task
         ):
             self._cb_horses.setChecked(settings.enable_horses_task)
             self._cb_racecard.setChecked(settings.enable_racecard_task)
@@ -334,6 +376,9 @@ class DownloadDialog(QDialog):
             self._cb_results.setChecked(settings.enable_results_task)
             self._cb_jockey_king.setChecked(settings.enable_jockey_king_task)
             self._cb_trainer_king.setChecked(settings.enable_trainer_king_task)
+            self._cb_football_odds.setChecked(settings.enable_football_odds_task)
+            self._cb_football_results.setChecked(settings.enable_football_results_task)
+            self._cb_epl.setChecked(settings.enable_epl_task)
         else:
             self._cb_horses.setChecked(settings.run_horses)
             self._cb_racecard.setChecked(settings.run_racecard)
@@ -341,6 +386,9 @@ class DownloadDialog(QDialog):
             self._cb_results.setChecked(settings.run_results)
             self._cb_jockey_king.setChecked(settings.run_jockey_king)
             self._cb_trainer_king.setChecked(settings.run_trainer_king)
+            self._cb_football_odds.setChecked(settings.run_football_odds)
+            self._cb_football_results.setChecked(settings.run_football_results)
+            self._cb_epl.setChecked(settings.run_epl)
 
         self._once.toggled.connect(self._sync_mode_enabled)
         self._scheduled.toggled.connect(self._sync_mode_enabled)
@@ -368,6 +416,9 @@ class DownloadDialog(QDialog):
         form.addWidget(self._cb_results)
         form.addWidget(self._cb_jockey_king)
         form.addWidget(self._cb_trainer_king)
+        form.addWidget(self._cb_football_odds)
+        form.addWidget(self._cb_football_results)
+        form.addWidget(self._cb_epl)
 
         note = QLabel(
             "「儲存設定」只保存，不會開始下載；要立刻下載請按「執行」。"
@@ -376,6 +427,8 @@ class DownloadDialog(QDialog):
             "勾選「排位」時會一併更新即時賠率；只抓賠率可不重抓排位頁。"
             "「賽馬結果」由 HKJC 賽果頁抓取名次／時間／賠率並寫入往績。"
             "「騎師王／練馬師王」抓取馬會賽日積分榜。"
+            "「足球賠率／足球賽果」由馬會足球 GraphQL 下載。"
+            "「英超賽程/賽果」由 Footylogic 下載近 1 季（約 1 年）賽程／賽果。"
             "資料來源網站請按「網站設定」管理。"
         )
         note.setWordWrap(True)
@@ -437,6 +490,9 @@ class DownloadDialog(QDialog):
             and not self._cb_results.isChecked()
             and not self._cb_jockey_king.isChecked()
             and not self._cb_trainer_king.isChecked()
+            and not self._cb_football_odds.isChecked()
+            and not self._cb_football_results.isChecked()
+            and not self._cb_epl.isChecked()
         ):
             QMessageBox.information(self, "下載設定", "請至少選擇一項要下載的資料。")
             return False
@@ -457,7 +513,9 @@ class DownloadDialog(QDialog):
     def should_run(self) -> bool:
         return bool(self._run_now)
 
-    def choice(self) -> tuple[str, bool, bool, bool, bool, bool, bool, str, int]:
+    def choice(
+        self,
+    ) -> tuple[str, bool, bool, bool, bool, bool, bool, bool, bool, bool, str, int]:
         if self._interval.isChecked():
             mode = "interval"
         elif self._scheduled.isChecked():
@@ -472,6 +530,9 @@ class DownloadDialog(QDialog):
             self._cb_results.isChecked(),
             self._cb_jockey_king.isChecked(),
             self._cb_trainer_king.isChecked(),
+            self._cb_football_odds.isChecked(),
+            self._cb_football_results.isChecked(),
+            self._cb_epl.isChecked(),
             self._time.time().toString("HH:mm"),
             int(self._interval_minutes.value()),
         )
@@ -487,15 +548,6 @@ class DateSortItem(QTableWidgetItem):
             if isinstance(a, int) and isinstance(b, int):
                 return a < b
         return super().__lt__(other)
-
-
-def _headers_with_sort_arrow(
-    base_headers: list[str], section: int, order: Qt.SortOrder
-) -> list[str]:
-    labels = list(base_headers)
-    if 0 <= section < len(labels):
-        labels[section] = f"{labels[section]} {'↑' if order == Qt.AscendingOrder else '↓'}"
-    return labels
 
 
 # 主殼分頁：標題底色（未選／已選）與圖示；啟動時只開 AI 助手，其餘按需加入且可關閉
@@ -540,10 +592,26 @@ _SHELL_TAB_DEFS: dict[str, dict[str, object]] = {
         "fg_sel": "#FFFFFF",
         "icon": QStyle.StandardPixmap.SP_DialogApplyButton,
     },
-    "analysis": {
-        "title": "賽馬分析",
+    "football": {
+        "title": "香港足球賠率/賽果",
+        "bg": "#CCFBF1",
+        "bg_sel": "#0D9488",
+        "fg": "#134E4A",
+        "fg_sel": "#FFFFFF",
+        "icon": QStyle.StandardPixmap.SP_ComputerIcon,
+    },
+    "football_epl": {
+        "title": "英超足球賠率/賽果",
         "bg": "#BFDBFE",
         "bg_sel": "#2563EB",
+        "fg": "#1E3A5F",
+        "fg_sel": "#FFFFFF",
+        "icon": QStyle.StandardPixmap.SP_ComputerIcon,
+    },
+    "analysis": {
+        "title": "賽馬分析",
+        "bg": "#DBEAFE",
+        "bg_sel": "#1D4ED8",
         "fg": "#1E3A8A",
         "fg_sel": "#FFFFFF",
         "icon": QStyle.StandardPixmap.SP_FileDialogInfoView,
@@ -680,14 +748,15 @@ class MainWindow(QMainWindow):
         self._load_btn.hide()
 
         self._horses_table = QTableWidget(0, 5)
-        self._horses_table.setSortingEnabled(True)
         self._horses_headers = ["HorseId", "Brand No.", "Name EN", "Name ZH", "Status"]
         self._horses_table.setHorizontalHeaderLabels(self._horses_headers)
-        configure_data_grid(self._horses_table, multi_select=True, enable_copy=True)
-        # 預設以中文名稱（Name ZH）排序
-        self._horses_table.horizontalHeader().setSortIndicator(3, Qt.AscendingOrder)
-        self._horses_table.horizontalHeader().sortIndicatorChanged.connect(
-            self._on_horses_sort_changed
+        configure_data_grid(
+            self._horses_table,
+            multi_select=True,
+            enable_copy=True,
+            multi_sort=True,
+            multi_sort_headers=list(self._horses_headers),
+            multi_sort_initial=[(3, True)],
         )
         self._horses_table.itemDoubleClicked.connect(self._on_horse_table_item_double_clicked)
         self._horses_table.itemSelectionChanged.connect(self._on_horses_selection_changed)
@@ -725,26 +794,9 @@ class MainWindow(QMainWindow):
         db_row.addWidget(make_form_label("DB："))
         db_row.addWidget(self._db_path_field, 1)
 
-        self._race_headers = [
-            "日期",
-            "場地",
-            "場次",
-            "跑道/途程",
-            "途程",
-            "場地狀況",
-            "班/級別",
-            "檔",
-            "評分",
-            "騎師",
-            "練馬師",
-            "負磅",
-            "名次",
-            "沿途走位",
-            "獨贏賠率",
-            "時間",
-            "獎金",
-            "Flag",
-        ]
+        from racing.race_record_grid import RACE_RECORD_GRID_HEADERS
+
+        self._race_headers = list(RACE_RECORD_GRID_HEADERS)
 
         # Detail form (selected row fields).
         self._horse_id_detail = QLineEdit()
@@ -774,17 +826,17 @@ class MainWindow(QMainWindow):
         self._horse_detail_widget = wrap_form_in_scroll(horse_form_host)
 
         # 分頁 2：往績 Grid
-        self._detail_race_table = QTableWidget(0, 18)
-        self._detail_race_table.setSortingEnabled(True)
+        from racing.race_record_grid import RACE_RECORD_GRID_HEADERS
+
+        self._detail_race_table = QTableWidget(0, len(RACE_RECORD_GRID_HEADERS))
         self._detail_race_table.setHorizontalHeaderLabels(self._race_headers)
         configure_data_grid(
             self._detail_race_table,
             multi_select=True,
             enable_copy=True,
             fixed_viewport=False,
-        )
-        self._detail_race_table.horizontalHeader().sortIndicatorChanged.connect(
-            self._on_detail_race_sort_changed
+            multi_sort=True,
+            multi_sort_headers=list(self._race_headers),
         )
         install_grid_keyboard_nav(self._detail_race_table)
 
@@ -801,10 +853,11 @@ class MainWindow(QMainWindow):
         race_tab_layout.addWidget(self._detail_race_table, 1)
         race_tab.setLayout(race_tab_layout)
 
-        # 明細區容器：分頁（馬匹資料 / 往績 Grid）
+        # 明細區容器：分頁（馬匹資料 / 往績 Grid）；預設顯示往績
         self._detail_tabs = QTabWidget()
         self._detail_tabs.addTab(self._horse_detail_widget, "馬匹資料")
         self._detail_tabs.addTab(race_tab, "往績")
+        self._detail_tabs.setCurrentIndex(1)
         self._detail_tabs.currentChanged.connect(self._on_detail_tab_changed)
 
         root = QVBoxLayout()
@@ -833,6 +886,14 @@ class MainWindow(QMainWindow):
         self._results_panel.hide()
         self._kings_panel = ChallengeKingsPanel(self._config, parent=None)
         self._kings_panel.hide()
+        self._football_panel = FootballPanel(
+            self._config, parent=None, scope=FOOTBALL_SCOPE_HK
+        )
+        self._football_panel.hide()
+        self._football_epl_panel = FootballPanel(
+            self._config, parent=None, scope=FOOTBALL_SCOPE_EPL
+        )
+        self._football_epl_panel.hide()
         self._analysis_panel = RaceAnalysisPanel(
             self._config,
             parent=None,
@@ -860,16 +921,27 @@ class MainWindow(QMainWindow):
                 "racecard": self._menu_open_racecard,
                 "results": self._menu_open_results,
                 "kings": self._menu_open_kings,
+                "football": self._menu_open_football,
+                "football_epl": self._menu_open_football_epl,
                 "analysis": self._menu_open_analysis,
                 "backup": self._menu_backup_database,
                 "download": self._open_download_dialog,
             },
         )
-        content_lay.addWidget(self._main_menu_controller.panel, 0)
-        content_lay.addWidget(shell, 1)
+        # 側欄預設足夠顯示最長選單標題，並可用分隔條調整寬度
+        self._shell_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._shell_splitter.setChildrenCollapsible(False)
+        self._shell_splitter.addWidget(self._main_menu_controller.panel)
+        self._shell_splitter.addWidget(shell)
+        self._shell_splitter.setStretchFactor(0, 0)
+        self._shell_splitter.setStretchFactor(1, 1)
+        side_w = max(280, self._main_menu_controller.panel.minimumWidth())
+        self._shell_splitter.setSizes([side_w, 1000])
+        content_lay.addWidget(self._shell_splitter, 1)
         self.setCentralWidget(self._content_host)
         self._ui_prefs_path = self._config.data_dir / "ui_prefs.json"
         self._apply_main_menu_style(self._load_main_menu_style_key())
+        set_grid_font_size_pt(self._load_font_size_pt())
 
         tb = QToolBar("Main")
         tb.setMovable(False)
@@ -895,6 +967,22 @@ class MainWindow(QMainWindow):
         center_lay.addWidget(download_btn)
         center_lay.addWidget(make_form_label("主題風格："))
         center_lay.addWidget(self._effect_combo)
+        center_lay.addWidget(make_form_label("字級："))
+        self._font_minus_btn = QPushButton("−")
+        self._font_minus_btn.setFixedWidth(28)
+        self._font_minus_btn.setToolTip(f"縮小字級（Ctrl+-），最小 {FONT_SIZE_MIN}pt")
+        self._font_minus_btn.clicked.connect(lambda: self._nudge_font_size(-1))
+        center_lay.addWidget(self._font_minus_btn)
+        self._font_size_label = QLabel(f"{get_grid_data_pt()}pt")
+        self._font_size_label.setMinimumWidth(40)
+        self._font_size_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._font_size_label.setToolTip("目前顯示字級；Ctrl+0 還原預設")
+        center_lay.addWidget(self._font_size_label)
+        self._font_plus_btn = QPushButton("+")
+        self._font_plus_btn.setFixedWidth(28)
+        self._font_plus_btn.setToolTip(f"放大字級（Ctrl+=），最大 {FONT_SIZE_MAX}pt")
+        self._font_plus_btn.clicked.connect(lambda: self._nudge_font_size(1))
+        center_lay.addWidget(self._font_plus_btn)
         print_btn = QPushButton("列印")
         style_action_button(print_btn, QStyle.StandardPixmap.SP_FileDialogContentsView)
         print_btn.setToolTip("列印／報表：匯出馬匹往績 Excel 或預覽")
@@ -915,6 +1003,7 @@ class MainWindow(QMainWindow):
         exit_tb_btn.clicked.connect(self.close)
         tb.addWidget(exit_tb_btn)
         self.addToolBar(tb)
+        self._install_font_size_shortcuts()
 
         status = QStatusBar()
         self.setStatusBar(status)
@@ -1022,6 +1111,72 @@ class MainWindow(QMainWindow):
             _act("離開", QStyle.StandardPixmap.SP_DialogCloseButton, self.close)
         )
 
+    def _load_font_size_pt(self) -> int:
+        path = getattr(self, "_ui_prefs_path", self._config.data_dir / "ui_prefs.json")
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            return clamp_font_size_pt(raw.get("font_size_pt", FONT_SIZE_DEFAULT))
+        except Exception:
+            return FONT_SIZE_DEFAULT
+
+    def _save_font_size_pt(self, pt: int) -> None:
+        path = getattr(self, "_ui_prefs_path", self._config.data_dir / "ui_prefs.json")
+        raw: dict = {}
+        try:
+            if path.is_file():
+                raw = json.loads(path.read_text(encoding="utf-8"))
+                if not isinstance(raw, dict):
+                    raw = {}
+        except Exception:
+            raw = {}
+        raw["font_size_pt"] = int(clamp_font_size_pt(pt))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(raw, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+
+    def _install_font_size_shortcuts(self) -> None:
+        for keys, delta in (
+            (("Ctrl++", "Ctrl+="), 1),
+            (("Ctrl+-", "Ctrl+_"), -1),
+        ):
+            for key in keys:
+                sc = QShortcut(QKeySequence(key), self)
+                sc.setContext(Qt.ShortcutContext.WindowShortcut)
+                sc.activated.connect(lambda d=delta: self._nudge_font_size(d))
+        sc0 = QShortcut(QKeySequence("Ctrl+0"), self)
+        sc0.setContext(Qt.ShortcutContext.WindowShortcut)
+        sc0.activated.connect(lambda: self._apply_font_size(FONT_SIZE_DEFAULT))
+
+    def _nudge_font_size(self, delta: int) -> None:
+        self._apply_font_size(get_grid_data_pt() + int(delta))
+
+    def _apply_font_size(self, pt: int) -> None:
+        applied = set_grid_font_size_pt(pt)
+        self._save_font_size_pt(applied)
+        if hasattr(self, "_font_size_label"):
+            self._font_size_label.setText(f"{applied}pt")
+        # 套用至整個顯示介面（應用程式預設字型 + 主題樣式 + Grid）
+        app = QApplication.instance()
+        if app is not None:
+            font = app.font()
+            font.setPointSize(applied)
+            app.setFont(font)
+        idx = self._effect_combo.currentIndex() if hasattr(self, "_effect_combo") else 0
+        self._on_effect_changed(idx)
+        apply_grid_font_to_widget_tree(self)
+        for attr in (
+            "_racecard_panel",
+            "_results_panel",
+            "_kings_panel",
+            "_football_panel",
+            "_football_epl_panel",
+            "_analysis_panel",
+        ):
+            apply_grid_font_to_widget_tree(getattr(self, attr, None))
+        if hasattr(self, "statusBar") and self.statusBar() is not None:
+            self.statusBar().showMessage(f"字級：{applied}pt", 2500)
+
     def _load_main_menu_style_key(self) -> str:
         path = getattr(self, "_ui_prefs_path", self._config.data_dir / "ui_prefs.json")
         if not path.is_file():
@@ -1070,6 +1225,12 @@ class MainWindow(QMainWindow):
 
     def _menu_open_kings(self) -> None:
         self._open_shell_tab("kings")
+
+    def _menu_open_football(self) -> None:
+        self._open_shell_tab("football")
+
+    def _menu_open_football_epl(self) -> None:
+        self._open_shell_tab("football_epl")
 
     def _menu_open_analysis(self) -> None:
         self._open_shell_tab("analysis")
@@ -1310,7 +1471,7 @@ class MainWindow(QMainWindow):
                         or raw.get("enable_racecard_task", False)
                     )
                 ),
-                run_results=bool(raw.get("run_results", True)),
+                run_results=bool(raw.get("run_results", False)),
                 last_run_results=str(raw.get("last_run_results", "")),
                 interval_results=bool(raw.get("interval_results", False)),
                 enable_results_task=bool(raw.get("enable_results_task", False)),
@@ -1325,6 +1486,33 @@ class MainWindow(QMainWindow):
                 trainer_king_task_time=str(raw.get("trainer_king_task_time", "05:00")),
                 last_run_jockey_king=str(raw.get("last_run_jockey_king", "")),
                 last_run_trainer_king=str(raw.get("last_run_trainer_king", "")),
+                run_football_odds=bool(raw.get("run_football_odds", False)),
+                run_football_results=bool(raw.get("run_football_results", False)),
+                interval_football_odds=bool(raw.get("interval_football_odds", False)),
+                interval_football_results=bool(
+                    raw.get("interval_football_results", False)
+                ),
+                enable_football_odds_task=bool(
+                    raw.get("enable_football_odds_task", False)
+                ),
+                enable_football_results_task=bool(
+                    raw.get("enable_football_results_task", False)
+                ),
+                football_odds_task_time=str(
+                    raw.get("football_odds_task_time", "05:00")
+                ),
+                football_results_task_time=str(
+                    raw.get("football_results_task_time", "05:00")
+                ),
+                last_run_football_odds=str(raw.get("last_run_football_odds", "")),
+                last_run_football_results=str(
+                    raw.get("last_run_football_results", "")
+                ),
+                run_epl=bool(raw.get("run_epl", False)),
+                interval_epl=bool(raw.get("interval_epl", False)),
+                enable_epl_task=bool(raw.get("enable_epl_task", False)),
+                epl_task_time=str(raw.get("epl_task_time", "05:00")),
+                last_run_epl=str(raw.get("last_run_epl", "")),
                 enable_backup=bool(raw.get("enable_backup", False)),
                 backup_folder=str(raw.get("backup_folder", default_backup_folder)),
                 backup_filename_template=str(
@@ -1382,6 +1570,25 @@ class MainWindow(QMainWindow):
             "trainer_king_task_time": self._task_settings.trainer_king_task_time,
             "last_run_jockey_king": self._task_settings.last_run_jockey_king,
             "last_run_trainer_king": self._task_settings.last_run_trainer_king,
+            "run_football_odds": self._task_settings.run_football_odds,
+            "run_football_results": self._task_settings.run_football_results,
+            "interval_football_odds": self._task_settings.interval_football_odds,
+            "interval_football_results": self._task_settings.interval_football_results,
+            "enable_football_odds_task": self._task_settings.enable_football_odds_task,
+            "enable_football_results_task": (
+                self._task_settings.enable_football_results_task
+            ),
+            "football_odds_task_time": self._task_settings.football_odds_task_time,
+            "football_results_task_time": (
+                self._task_settings.football_results_task_time
+            ),
+            "last_run_football_odds": self._task_settings.last_run_football_odds,
+            "last_run_football_results": self._task_settings.last_run_football_results,
+            "run_epl": self._task_settings.run_epl,
+            "interval_epl": self._task_settings.interval_epl,
+            "enable_epl_task": self._task_settings.enable_epl_task,
+            "epl_task_time": self._task_settings.epl_task_time,
+            "last_run_epl": self._task_settings.last_run_epl,
             "results_task_time": self._task_settings.results_task_time,
             "enable_backup": self._task_settings.enable_backup,
             "backup_folder": self._task_settings.backup_folder,
@@ -1420,6 +1627,10 @@ class MainWindow(QMainWindow):
             return "results"
         if hasattr(self, "_kings_panel") and widget is self._kings_panel:
             return "kings"
+        if hasattr(self, "_football_panel") and widget is self._football_panel:
+            return "football"
+        if hasattr(self, "_football_epl_panel") and widget is self._football_epl_panel:
+            return "football_epl"
         if hasattr(self, "_analysis_panel") and widget is self._analysis_panel:
             return "analysis"
         return None
@@ -1445,10 +1656,16 @@ class MainWindow(QMainWindow):
             widget = self._racecard_panel
         elif key == "kings":
             widget = self._kings_panel
+        elif key == "football":
+            widget = self._football_panel
+        elif key == "football_epl":
+            widget = self._football_epl_panel
         elif key == "analysis":
             widget = self._analysis_panel
-        else:
+        elif key == "results":
             widget = self._results_panel
+        else:
+            return -1
         if widget is None:
             return -1
         index = self._main_shell_tabs.indexOf(widget)
@@ -1474,6 +1691,10 @@ class MainWindow(QMainWindow):
             self._results_panel.reload()
         if key == "kings" and hasattr(self, "_kings_panel"):
             self._kings_panel.reload()
+        if key == "football" and hasattr(self, "_football_panel"):
+            self._football_panel.reload()
+        if key == "football_epl" and hasattr(self, "_football_epl_panel"):
+            self._football_epl_panel.reload()
         if key == "analysis" and hasattr(self, "_analysis_panel"):
             self._analysis_panel.reload()
         if key == "ai" and self._ai_panel is not None:
@@ -1529,9 +1750,16 @@ class MainWindow(QMainWindow):
             )
             return "已開始下載排位。"
         if action == "download_once":
-            horses, racecard, odds, results, jockey_king, trainer_king = (
-                self._parse_download_scope_arg(arg)
-            )
+            (
+                horses,
+                racecard,
+                odds,
+                results,
+                jockey_king,
+                trainer_king,
+                football_odds,
+                football_results,
+            ) = self._parse_download_scope_arg(arg)
             self._start_download_with_progress(
                 do_horses=horses,
                 do_racecard=racecard,
@@ -1539,6 +1767,8 @@ class MainWindow(QMainWindow):
                 do_results=results,
                 do_jockey_king=jockey_king,
                 do_trainer_king=trainer_king,
+                do_football_odds=football_odds,
+                do_football_results=football_results,
                 title="AI 下載資料",
             )
             parts = []
@@ -1554,11 +1784,23 @@ class MainWindow(QMainWindow):
                 parts.append("騎師王")
             if trainer_king:
                 parts.append("練馬師王")
+            if football_odds:
+                parts.append("足球賠率")
+            if football_results:
+                parts.append("足球賽果")
             return f"已開始下載：{'、'.join(parts) or '無'}。"
         if action == "download_schedule":
-            when, horses, racecard, odds, results, jockey_king, trainer_king = (
-                self._parse_download_schedule_arg(arg)
-            )
+            (
+                when,
+                horses,
+                racecard,
+                odds,
+                results,
+                jockey_king,
+                trainer_king,
+                football_odds,
+                football_results,
+            ) = self._parse_download_schedule_arg(arg)
             message = self._apply_download_schedule(
                 horses=horses,
                 racecard=racecard,
@@ -1566,13 +1808,23 @@ class MainWindow(QMainWindow):
                 results=results,
                 jockey_king=jockey_king,
                 trainer_king=trainer_king,
+                football_odds=football_odds,
+                football_results=football_results,
                 when=when,
             )
             return message
         if action == "download_interval":
-            minutes, horses, racecard, odds, results, jockey_king, trainer_king = (
-                self._parse_download_interval_arg(arg)
-            )
+            (
+                minutes,
+                horses,
+                racecard,
+                odds,
+                results,
+                jockey_king,
+                trainer_king,
+                football_odds,
+                football_results,
+            ) = self._parse_download_interval_arg(arg)
             message = self._apply_download_interval(
                 horses=horses,
                 racecard=racecard,
@@ -1580,6 +1832,8 @@ class MainWindow(QMainWindow):
                 results=results,
                 jockey_king=jockey_king,
                 trainer_king=trainer_king,
+                football_odds=football_odds,
+                football_results=football_results,
                 minutes=minutes,
             )
             return message
@@ -1602,44 +1856,100 @@ class MainWindow(QMainWindow):
 
     def _parse_download_scope_arg(
         self, arg: str | None
-    ) -> tuple[bool, bool, bool, bool, bool, bool]:
+    ) -> tuple[bool, bool, bool, bool, bool, bool, bool, bool]:
         text = (arg or "horses,racecard,odds").lower()
+        football_odds = "football_odds" in text or "足球賠率" in text
+        football_results = "football_results" in text or "足球賽果" in text
         horses = "horses" in text or "馬匹" in text or "往績" in text
         racecard = "racecard" in text or "排位" in text
-        odds = "odds" in text or "賠率" in text
-        results = "results" in text or "賽果" in text or "賽馬結果" in text
+        odds = (("odds" in text) or ("賠率" in text)) and not football_odds
+        results = (
+            ("results" in text and "football_results" not in text)
+            or "賽馬結果" in text
+            or ("賽果" in text and "足球賽果" not in text)
+        )
         jockey_king = "jockey_king" in text or "騎師王" in text
         trainer_king = "trainer_king" in text or "練馬師王" in text
         if not (
-            horses or racecard or odds or results or jockey_king or trainer_king
+            horses
+            or racecard
+            or odds
+            or results
+            or jockey_king
+            or trainer_king
+            or football_odds
+            or football_results
         ):
-            return True, True, True, False, False, False
-        return horses, racecard, odds, results, jockey_king, trainer_king
+            return True, True, True, False, False, False, False, False
+        return (
+            horses,
+            racecard,
+            odds,
+            results,
+            jockey_king,
+            trainer_king,
+            football_odds,
+            football_results,
+        )
 
     def _parse_download_schedule_arg(
         self, arg: str | None
-    ) -> tuple[str, bool, bool, bool, bool, bool, bool]:
+    ) -> tuple[str, bool, bool, bool, bool, bool, bool, bool, bool]:
         text = (arg or "23:00|horses,racecard,odds").strip()
         when, _, scope = text.partition("|")
         when = when.strip() or "23:00"
-        horses, racecard, odds, results, jockey_king, trainer_king = (
-            self._parse_download_scope_arg(scope or "horses,racecard,odds")
+        (
+            horses,
+            racecard,
+            odds,
+            results,
+            jockey_king,
+            trainer_king,
+            football_odds,
+            football_results,
+        ) = self._parse_download_scope_arg(scope or "horses,racecard,odds")
+        return (
+            when,
+            horses,
+            racecard,
+            odds,
+            results,
+            jockey_king,
+            trainer_king,
+            football_odds,
+            football_results,
         )
-        return when, horses, racecard, odds, results, jockey_king, trainer_king
 
     def _parse_download_interval_arg(
         self, arg: str | None
-    ) -> tuple[int, bool, bool, bool, bool, bool, bool]:
+    ) -> tuple[int, bool, bool, bool, bool, bool, bool, bool, bool]:
         text = (arg or "5|odds").strip()
         minutes_text, _, scope = text.partition("|")
         try:
             minutes = max(1, int(minutes_text.strip() or "5"))
         except ValueError:
             minutes = 5
-        horses, racecard, odds, results, jockey_king, trainer_king = (
-            self._parse_download_scope_arg(scope or "odds")
+        (
+            horses,
+            racecard,
+            odds,
+            results,
+            jockey_king,
+            trainer_king,
+            football_odds,
+            football_results,
+        ) = self._parse_download_scope_arg(scope or "odds")
+        return (
+            minutes,
+            horses,
+            racecard,
+            odds,
+            results,
+            jockey_king,
+            trainer_king,
+            football_odds,
+            football_results,
         )
-        return minutes, horses, racecard, odds, results, jockey_king, trainer_king
 
     def _apply_download_schedule(
         self,
@@ -1650,6 +1960,9 @@ class MainWindow(QMainWindow):
         results: bool = False,
         jockey_king: bool = False,
         trainer_king: bool = False,
+        football_odds: bool = False,
+        football_results: bool = False,
+        epl: bool = False,
         when: str,
     ) -> str:
         self._task_settings = replace(
@@ -1670,6 +1983,18 @@ class MainWindow(QMainWindow):
             trainer_king_task_time=(
                 when if trainer_king else self._task_settings.trainer_king_task_time
             ),
+            enable_football_odds_task=football_odds,
+            football_odds_task_time=(
+                when if football_odds else self._task_settings.football_odds_task_time
+            ),
+            enable_football_results_task=football_results,
+            football_results_task_time=(
+                when
+                if football_results
+                else self._task_settings.football_results_task_time
+            ),
+            enable_epl_task=epl,
+            epl_task_time=(when if epl else self._task_settings.epl_task_time),
             enable_interval_task=False,
             run_horses=horses,
             run_racecard=racecard,
@@ -1677,6 +2002,9 @@ class MainWindow(QMainWindow):
             run_results=results,
             run_jockey_king=jockey_king,
             run_trainer_king=trainer_king,
+            run_football_odds=football_odds,
+            run_football_results=football_results,
+            run_epl=epl,
         )
         self._schedule_not_before = datetime.now()
         self._save_task_settings()
@@ -1693,6 +2021,12 @@ class MainWindow(QMainWindow):
             parts.append("騎師王")
         if trainer_king:
             parts.append("練馬師王")
+        if football_odds:
+            parts.append("足球賠率")
+        if football_results:
+            parts.append("足球賽果")
+        if epl:
+            parts.append("英超賽程/賽果")
         message = f"已設定每日 {when} 下載{'、'.join(parts)}。開啟程式時不會補抓。"
         pass  # UI 提示不寫入狀態列
         return message
@@ -1706,9 +2040,13 @@ class MainWindow(QMainWindow):
         results: bool = False,
         jockey_king: bool = False,
         trainer_king: bool = False,
+        football_odds: bool = False,
+        football_results: bool = False,
+        epl: bool = False,
         minutes: int,
     ) -> str:
         minutes = max(1, int(minutes))
+        # 立刻寫入 last_interval_at，避免設定後排程在首次手動執行期間誤判到期
         self._task_settings = replace(
             self._task_settings,
             enable_interval_task=True,
@@ -1719,19 +2057,28 @@ class MainWindow(QMainWindow):
             interval_results=results,
             interval_jockey_king=jockey_king,
             interval_trainer_king=trainer_king,
-            last_interval_at="",
+            interval_football_odds=football_odds,
+            interval_football_results=football_results,
+            interval_epl=epl,
+            last_interval_at=datetime.now().isoformat(timespec="seconds"),
             enable_horses_task=False,
             enable_racecard_task=False,
             enable_odds_task=False,
             enable_results_task=False,
             enable_jockey_king_task=False,
             enable_trainer_king_task=False,
+            enable_football_odds_task=False,
+            enable_football_results_task=False,
+            enable_epl_task=False,
             run_horses=horses,
             run_racecard=racecard,
             run_odds=odds,
             run_results=results,
             run_jockey_king=jockey_king,
             run_trainer_king=trainer_king,
+            run_football_odds=football_odds,
+            run_football_results=football_results,
+            run_epl=epl,
         )
         self._schedule_not_before = datetime.now()
         self._save_task_settings()
@@ -1750,6 +2097,12 @@ class MainWindow(QMainWindow):
             parts.append("騎師王")
         if trainer_king:
             parts.append("練馬師王")
+        if football_odds:
+            parts.append("足球賠率")
+        if football_results:
+            parts.append("足球賽果")
+        if epl:
+            parts.append("英超賽程/賽果")
         message = f"已設定每隔 {minutes} 分鐘下載{'、'.join(parts)}。程式需保持開啟。"
         pass  # UI 提示不寫入狀態列
         return message
@@ -1763,6 +2116,9 @@ class MainWindow(QMainWindow):
         results: bool = False,
         jockey_king: bool = False,
         trainer_king: bool = False,
+        football_odds: bool = False,
+        football_results: bool = False,
+        epl: bool = False,
     ) -> str:
         self._task_settings = replace(
             self._task_settings,
@@ -1773,12 +2129,18 @@ class MainWindow(QMainWindow):
             enable_results_task=False,
             enable_jockey_king_task=False,
             enable_trainer_king_task=False,
+            enable_football_odds_task=False,
+            enable_football_results_task=False,
+            enable_epl_task=False,
             run_horses=horses,
             run_racecard=racecard,
             run_odds=odds,
             run_results=results,
             run_jockey_king=jockey_king,
             run_trainer_king=trainer_king,
+            run_football_odds=football_odds,
+            run_football_results=football_results,
+            run_epl=epl,
         )
         self._save_task_settings()
         parts = []
@@ -1796,6 +2158,12 @@ class MainWindow(QMainWindow):
             parts.append("騎師王")
         if trainer_king:
             parts.append("練馬師王")
+        if football_odds:
+            parts.append("足球賠率")
+        if football_results:
+            parts.append("足球賽果")
+        if epl:
+            parts.append("英超賽程/賽果")
         message = (
             f"下載設定已儲存：{'、'.join(parts) or '無'}。"
             "於下載視窗按「執行」才會開始下載。"
@@ -1815,6 +2183,9 @@ class MainWindow(QMainWindow):
             results,
             jockey_king,
             trainer_king,
+            football_odds,
+            football_results,
+            epl,
             when,
             minutes,
         ) = dlg.choice()
@@ -1826,6 +2197,9 @@ class MainWindow(QMainWindow):
                 results=results,
                 jockey_king=jockey_king,
                 trainer_king=trainer_king,
+                football_odds=football_odds,
+                football_results=football_results,
+                epl=epl,
                 minutes=minutes,
             )
         elif mode == "schedule":
@@ -1836,6 +2210,9 @@ class MainWindow(QMainWindow):
                 results=results,
                 jockey_king=jockey_king,
                 trainer_king=trainer_king,
+                football_odds=football_odds,
+                football_results=football_results,
+                epl=epl,
                 when=when,
             )
         else:
@@ -1846,6 +2223,9 @@ class MainWindow(QMainWindow):
                 results=results,
                 jockey_king=jockey_king,
                 trainer_king=trainer_king,
+                football_odds=football_odds,
+                football_results=football_results,
+                epl=epl,
             )
         if dlg.should_run():
             if mode == "interval":
@@ -1861,6 +2241,9 @@ class MainWindow(QMainWindow):
                 do_results=results,
                 do_jockey_king=jockey_king,
                 do_trainer_king=trainer_king,
+                do_football_odds=football_odds,
+                do_football_results=football_results,
+                do_epl=epl,
                 title=title,
                 # 間隔模式首次執行也要寫入 last_interval_at，避免 15 秒內再跑一次
                 from_interval=(mode == "interval"),
@@ -1895,6 +2278,9 @@ class MainWindow(QMainWindow):
             or self._task_settings.interval_results
             or self._task_settings.interval_jockey_king
             or self._task_settings.interval_trainer_king
+            or self._task_settings.interval_football_odds
+            or self._task_settings.interval_football_results
+            or self._task_settings.interval_epl
         ):
             return False
         minutes = max(1, int(self._task_settings.interval_minutes or 5))
@@ -1949,6 +2335,9 @@ class MainWindow(QMainWindow):
                 do_results=self._task_settings.interval_results,
                 do_jockey_king=self._task_settings.interval_jockey_king,
                 do_trainer_king=self._task_settings.interval_trainer_king,
+                do_football_odds=self._task_settings.interval_football_odds,
+                do_football_results=self._task_settings.interval_football_results,
+                do_epl=self._task_settings.interval_epl,
                 title=f"間隔下載（每 {self._task_settings.interval_minutes} 分）",
                 from_interval=True,
             )
@@ -1976,6 +2365,24 @@ class MainWindow(QMainWindow):
             self._task_settings.last_run_trainer_king,
             now,
         )
+        due_fb_odds = self._task_settings.enable_football_odds_task and self._is_due(
+            self._task_settings.football_odds_task_time,
+            self._task_settings.last_run_football_odds,
+            now,
+        )
+        due_fb_results = (
+            self._task_settings.enable_football_results_task
+            and self._is_due(
+                self._task_settings.football_results_task_time,
+                self._task_settings.last_run_football_results,
+                now,
+            )
+        )
+        due_epl = self._task_settings.enable_epl_task and self._is_due(
+            self._task_settings.epl_task_time,
+            self._task_settings.last_run_epl,
+            now,
+        )
         if (
             due_horses
             or due_racecard
@@ -1983,6 +2390,9 @@ class MainWindow(QMainWindow):
             or due_results
             or due_jockey
             or due_trainer
+            or due_fb_odds
+            or due_fb_results
+            or due_epl
         ):
             self._start_download_with_progress(
                 do_horses=due_horses,
@@ -1991,6 +2401,9 @@ class MainWindow(QMainWindow):
                 do_results=due_results,
                 do_jockey_king=due_jockey,
                 do_trainer_king=due_trainer,
+                do_football_odds=due_fb_odds,
+                do_football_results=due_fb_results,
+                do_epl=due_epl,
                 title="指定時間下載",
             )
 
@@ -2003,6 +2416,9 @@ class MainWindow(QMainWindow):
         results: bool = False,
         jockey_king: bool = False,
         trainer_king: bool = False,
+        football_odds: bool = False,
+        football_results: bool = False,
+        epl: bool = False,
         interval: bool = False,
     ) -> None:
         today = datetime.now().strftime("%Y-%m-%d")
@@ -2019,6 +2435,15 @@ class MainWindow(QMainWindow):
             last_run_trainer_king=(
                 today if trainer_king else self._task_settings.last_run_trainer_king
             ),
+            last_run_football_odds=(
+                today if football_odds else self._task_settings.last_run_football_odds
+            ),
+            last_run_football_results=(
+                today
+                if football_results
+                else self._task_settings.last_run_football_results
+            ),
+            last_run_epl=(today if epl else self._task_settings.last_run_epl),
             last_interval_at=now_iso if interval else self._task_settings.last_interval_at,
         )
         self._save_task_settings()
@@ -2080,6 +2505,9 @@ class MainWindow(QMainWindow):
         do_results: bool = False,
         do_jockey_king: bool = False,
         do_trainer_king: bool = False,
+        do_football_odds: bool = False,
+        do_football_results: bool = False,
+        do_epl: bool = False,
         title: str = "下載資料",
         from_interval: bool = False,
     ) -> None:
@@ -2090,6 +2518,9 @@ class MainWindow(QMainWindow):
             or do_results
             or do_jockey_king
             or do_trainer_king
+            or do_football_odds
+            or do_football_results
+            or do_epl
         ):
             return
         jobs = []
@@ -2105,6 +2536,12 @@ class MainWindow(QMainWindow):
             jobs.append("jockey_king")
         if do_trainer_king:
             jobs.append("trainer_king")
+        if do_football_odds:
+            jobs.append("football_odds")
+        if do_football_results:
+            jobs.append("football_results")
+        if do_epl:
+            jobs.append("epl")
         if any(job in self._running_jobs for job in jobs):
             self._set_background_status("下載進行中，請稍候…")
             return
@@ -2126,6 +2563,9 @@ class MainWindow(QMainWindow):
             do_results=do_results,
             do_jockey_king=do_jockey_king,
             do_trainer_king=do_trainer_king,
+            do_football_odds=do_football_odds,
+            do_football_results=do_football_results,
+            do_epl=do_epl,
         )
         self._download_thread = thread
         self._download_worker = worker
@@ -2137,6 +2577,9 @@ class MainWindow(QMainWindow):
             do_results,
             do_jockey_king,
             do_trainer_king,
+            do_football_odds,
+            do_football_results,
+            do_epl,
             from_interval,
         )
         worker.moveToThread(thread)
@@ -2159,11 +2602,36 @@ class MainWindow(QMainWindow):
         flags = getattr(self, "_download_flags", (False, False, False, False, False))
         do_jockey_king = False
         do_trainer_king = False
+        do_football_odds = False
+        do_football_results = False
+        do_epl = False
         if len(flags) == 4:
             do_horses, do_racecard, do_odds, from_interval = flags
             do_results = False
         elif len(flags) == 5:
             do_horses, do_racecard, do_odds, do_results, from_interval = flags
+        elif len(flags) == 7:
+            (
+                do_horses,
+                do_racecard,
+                do_odds,
+                do_results,
+                do_jockey_king,
+                do_trainer_king,
+                from_interval,
+            ) = flags
+        elif len(flags) == 9:
+            (
+                do_horses,
+                do_racecard,
+                do_odds,
+                do_results,
+                do_jockey_king,
+                do_trainer_king,
+                do_football_odds,
+                do_football_results,
+                from_interval,
+            ) = flags
         else:
             (
                 do_horses,
@@ -2172,6 +2640,9 @@ class MainWindow(QMainWindow):
                 do_results,
                 do_jockey_king,
                 do_trainer_king,
+                do_football_odds,
+                do_football_results,
+                do_epl,
                 from_interval,
             ) = flags
         try:
@@ -2182,27 +2653,48 @@ class MainWindow(QMainWindow):
                 results=do_results,
                 jockey_king=do_jockey_king,
                 trainer_king=do_trainer_king,
+                football_odds=do_football_odds,
+                football_results=do_football_results,
+                epl=do_epl,
                 interval=from_interval,
             )
-            self._set_background_status(f"下載完成：{message}")
+            done_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self._set_background_status(f"下載完成：{message}｜完成時間 {done_at}")
             if (do_racecard or do_odds) and hasattr(self, "_racecard_panel"):
                 self._racecard_panel.reload_stored()
+            if do_results and hasattr(self, "_results_panel"):
+                self._results_panel.reload_stored()
             if (do_jockey_king or do_trainer_king) and hasattr(self, "_kings_panel"):
                 self._kings_panel.reload_stored()
+            if (do_football_odds or do_football_results) and hasattr(
+                self, "_football_panel"
+            ):
+                self._football_panel.reload_stored()
+            if do_epl and hasattr(self, "_football_epl_panel"):
+                self._football_epl_panel.reload_stored()
+            # 馬會足球下載也可能含英超場次；兩邊都刷新較穩妥
+            if (do_football_odds or do_football_results) and hasattr(
+                self, "_football_epl_panel"
+            ):
+                self._football_epl_panel.reload_stored()
             if do_horses:
                 self._refresh_horse_id_combo()
                 self._on_search_clicked()
         except Exception as exc:  # noqa: BLE001
-            self._set_background_status(f"下載完成，但畫面刷新失敗：{exc}")
+            done_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self._set_background_status(
+                f"下載完成，但畫面刷新失敗：{exc}｜完成時間 {done_at}"
+            )
         finally:
             self._release_download_jobs()
 
     def _on_download_finished_error(self, message: str) -> None:
         try:
+            done_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             if message == "已取消。":
-                self._set_background_status("下載已取消。")
+                self._set_background_status(f"下載已取消。｜完成時間 {done_at}")
             else:
-                self._set_background_status(f"下載失敗：{message}")
+                self._set_background_status(f"下載失敗：{message}｜完成時間 {done_at}")
         finally:
             self._release_download_jobs()
 
@@ -2684,29 +3176,9 @@ QTabBar#mainShellTabBar::close-button:hover {{
         self._sync_selected_horse_panels()
         self._update_display_count_label()
 
-    def _on_horses_sort_changed(self, section: int, order: Qt.SortOrder) -> None:
-        self._horses_table.setHorizontalHeaderLabels(
-            _headers_with_sort_arrow(self._horses_headers, section, order)
-        )
-
-    def _on_detail_race_sort_changed(self, section: int, order: Qt.SortOrder) -> None:
-        self._detail_race_table.setHorizontalHeaderLabels(
-            _headers_with_sort_arrow(self._race_headers, section, order)
-        )
-
     def _refresh_sort_header_labels(self) -> None:
-        h1 = self._horses_table.horizontalHeader()
-        self._horses_table.setHorizontalHeaderLabels(
-            _headers_with_sort_arrow(
-                self._horses_headers, h1.sortIndicatorSection(), h1.sortIndicatorOrder()
-            )
-        )
-        h2 = self._detail_race_table.horizontalHeader()
-        self._detail_race_table.setHorizontalHeaderLabels(
-            _headers_with_sort_arrow(
-                self._race_headers, h2.sortIndicatorSection(), h2.sortIndicatorOrder()
-            )
-        )
+        refresh_multi_sort_headers(self._horses_table, self._horses_headers)
+        refresh_multi_sort_headers(self._detail_race_table, self._race_headers)
 
     def _update_display_count_label(self) -> None:
         """更新「Grid Row N/M」：N = 目前選中列（current row），M = 總列數（row count）。"""
@@ -2830,7 +3302,7 @@ QTabBar#mainShellTabBar::close-button:hover {{
         # Grid 顯示全部：不在 DB query 加入 LIMIT。
         limit: int | None = None
 
-        self._horses_table.setSortingEnabled(False)
+        prev_keys = list(getattr(self._horses_table, "_multi_sort_keys", []) or [])
         rows = (
             search_horses_by_name(self._config.db_path, keyword, limit=limit)
             if keyword
@@ -2851,11 +3323,13 @@ QTabBar#mainShellTabBar::close-button:hover {{
             for col, v in enumerate(values):
                 item = make_table_item(v, numeric=False)
                 self._horses_table.setItem(row_idx, col, item)
-        self._horses_table.setSortingEnabled(True)
-        # 套用預設排序：Name ZH 升序。
-        self._horses_table.sortItems(3, Qt.AscendingOrder)
+        # 套用目前／預設多欄排序（預設 Name ZH 升序）。
+        apply_multi_column_sort(
+            self._horses_table,
+            prev_keys or [(3, True)],
+            base_headers=list(self._horses_headers),
+        )
         resize_grid_columns_to_content(self._horses_table)
-        self._refresh_sort_header_labels()
         if rows:
             self._horses_table.selectRow(0)
         self._sync_selected_horse_panels()
@@ -2880,37 +3354,19 @@ QTabBar#mainShellTabBar::close-button:hover {{
             self._refresh_sort_header_labels()
             return
 
+        from racing.race_record_grid import race_record_grid_values
+
         rows = fetch_race_records(self._config.db_path, horse_id)
 
-        table.setSortingEnabled(False)
+        prev_keys = list(getattr(table, "_multi_sort_keys", []) or [])
         table.setRowCount(0)
         flag_status = get_horse_status(self._config.db_path, horse_id)
 
         for r in rows:
             row_idx = table.rowCount()
             table.insertRow(row_idx)
-            date_text = format_date_yyyy_mm_dd(r.race_date)
-            values = [
-                date_text,
-                r.venue or "",
-                format_integer(r.race_no) if str(r.race_no or "").strip() else "",
-                r.course or "",
-                format_integer(r.distance) if str(r.distance or "").replace(".", "", 1).isdigit() else (r.distance or ""),
-                r.going or "",
-                r.class_band or "",
-                format_two_digit_99(r.draw),
-                format_integer(r.rating) if str(r.rating or "").strip() else "",
-                r.jockey or "",
-                r.trainer or "",
-                format_integer(r.handicap) if str(r.handicap or "").strip() else (r.handicap or ""),
-                format_two_digit_99(r.finish_pos),
-                r.running_pos or "",
-                str(r.win_odds or ""),
-                r.time or "",
-                format_money(r.prize) if str(r.prize or "").strip() else "",
-                flag_status or "",
-            ]
-            numeric_cols = {2, 4, 7, 8, 11, 12, 14, 16}
+            values = race_record_grid_values(r, flag_status)
+            numeric_cols = {2, 4, 7, 8, 11, 12, 15, 17}
             for col, v in enumerate(values):
                 if col == 0:
                     item = DateSortItem(str(v))
@@ -2923,8 +3379,12 @@ QTabBar#mainShellTabBar::close-button:hover {{
                 table.setItem(row_idx, col, item)
 
         resize_grid_columns_to_content(table)
-        table.setSortingEnabled(True)
-        self._refresh_sort_header_labels()
+        if prev_keys:
+            apply_multi_column_sort(
+                table, prev_keys, base_headers=list(self._race_headers)
+            )
+        else:
+            refresh_multi_sort_headers(table, self._race_headers)
         if table.rowCount() > 0:
             table.selectRow(0)
         self._race_records_total_for_horse = count_race_records(self._config.db_path, horse_id)

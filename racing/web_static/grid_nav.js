@@ -178,5 +178,143 @@
     },
   };
 
+  /* ── 多欄排序：點表頭＝主鍵；Shift+點＝疊加次要欄（最多 4）── */
+  const MULTI_SORT_MAX = 4;
+  const SORT_ARROW_RE = /\s*[↑↓]\d*\s*$/;
+
+  function sortBaseLabel(th) {
+    if (!th) return "";
+    if (th.dataset.label) return th.dataset.label;
+    const raw = String(th.childNodes[0] ? th.childNodes[0].textContent : th.textContent || "");
+    const base = raw.replace(SORT_ARROW_RE, "").trim();
+    th.dataset.label = base;
+    return base;
+  }
+
+  function cellSortKey(text) {
+    const s = String(text || "").trim().replace(/,/g, "");
+    if (!s) return { empty: 1, num: 0, n: 0, s: "" };
+    if (/^-?\d+(\.\d+)?$/.test(s)) return { empty: 0, num: 0, n: parseFloat(s), s: "" };
+    return { empty: 0, num: 1, n: 0, s: s.toLowerCase() };
+  }
+
+  function cmpKeys(a, b) {
+    if (a.empty !== b.empty) return a.empty - b.empty;
+    if (a.num !== b.num) return a.num - b.num;
+    if (a.num === 0) return a.n === b.n ? 0 : a.n < b.n ? -1 : 1;
+    if (a.s < b.s) return -1;
+    if (a.s > b.s) return 1;
+    return 0;
+  }
+
+  function refreshSortHeaders(table) {
+    const keys = table._hppvSortKeys || [];
+    const ths = table.querySelectorAll("thead th");
+    ths.forEach((th, col) => {
+      const base = sortBaseLabel(th);
+      th.classList.remove("sorted-asc", "sorted-desc");
+      let label = base;
+      const idx = keys.findIndex((k) => k.col === col);
+      if (idx >= 0) {
+        const asc = keys[idx].asc;
+        label = `${base} ${asc ? "↑" : "↓"}${idx + 1}`;
+        th.classList.add(asc ? "sorted-asc" : "sorted-desc");
+      }
+      // 保留欄寬拖曳把手
+      const grip = th.querySelector(".col-resizer");
+      if (grip) {
+        th.childNodes.forEach((n) => {
+          if (n !== grip) th.removeChild(n);
+        });
+        th.insertBefore(document.createTextNode(label), grip);
+      } else {
+        th.textContent = label;
+        th.dataset.label = base;
+      }
+    });
+  }
+
+  function applyTableSort(table) {
+    const keys = table._hppvSortKeys || [];
+    const tb = table.tBodies[0];
+    if (!tb || !keys.length) {
+      refreshSortHeaders(table);
+      return;
+    }
+    const dataRows = Array.from(tb.querySelectorAll("tr:not(.grid-pad)"));
+    const padRows = Array.from(tb.querySelectorAll("tr.grid-pad"));
+    dataRows.sort((ra, rb) => {
+      for (const { col, asc } of keys) {
+        const ta = ra.cells[col] ? ra.cells[col].textContent : "";
+        const tbv = rb.cells[col] ? rb.cells[col].textContent : "";
+        const c = cmpKeys(cellSortKey(ta), cellSortKey(tbv));
+        if (c !== 0) return asc ? c : -c;
+      }
+      return 0;
+    });
+    dataRows.forEach((tr) => tb.appendChild(tr));
+    padRows.forEach((tr) => tb.appendChild(tr));
+    refreshSortHeaders(table);
+  }
+
+  function onSortHeaderClick(ev) {
+    if (ev.target.closest(".col-resizer")) return;
+    const th = ev.target.closest("th");
+    const table = th && th.closest("table");
+    if (!th || !table || !table.contains(th)) return;
+    const thead = table.tHead;
+    if (!thead || !thead.contains(th)) return;
+    const col = th.cellIndex;
+    if (col < 0) return;
+    ev.preventDefault();
+    let keys = Array.isArray(table._hppvSortKeys) ? table._hppvSortKeys.slice() : [];
+    if (ev.shiftKey) {
+      const i = keys.findIndex((k) => k.col === col);
+      if (i >= 0) keys[i] = { col, asc: !keys[i].asc };
+      else keys.push({ col, asc: true });
+      keys = keys.slice(0, MULTI_SORT_MAX);
+    } else if (keys.length && keys[0].col === col) {
+      keys = [{ col, asc: !keys[0].asc }];
+    } else {
+      keys = [{ col, asc: true }];
+    }
+    table._hppvSortKeys = keys;
+    applyTableSort(table);
+  }
+
+  function bindMultiSort(table) {
+    if (!table || table.getAttribute("data-multi-sort") === "off") return;
+    const ths = table.querySelectorAll("thead th");
+    if (!ths.length) return;
+    // 欄位數變更時重設排序鍵
+    if (table._hppvSortColCount != null && table._hppvSortColCount !== ths.length) {
+      table._hppvSortKeys = [];
+    }
+    table._hppvSortColCount = ths.length;
+    ths.forEach((th) => {
+      sortBaseLabel(th);
+      th.style.cursor = "pointer";
+      th.title = th.title || "點選排序；Shift+點選可多欄排序";
+    });
+    if (table.dataset.multiSortBound !== "1") {
+      table.dataset.multiSortBound = "1";
+      table.addEventListener("click", (ev) => {
+        if (ev.target.closest("thead th")) onSortHeaderClick(ev);
+      });
+    }
+    if (table._hppvSortKeys && table._hppvSortKeys.length) applyTableSort(table);
+    else refreshSortHeaders(table);
+  }
+
+  window.HppvGridSort = {
+    bind: bindMultiSort,
+    apply: applyTableSort,
+    setKeys: function (table, keys) {
+      if (!table) return;
+      table._hppvSortKeys = Array.isArray(keys) ? keys.slice(0, MULTI_SORT_MAX) : [];
+      applyTableSort(table);
+    },
+  };
+
   document.addEventListener("DOMContentLoaded", () => window.HppvGridNav.bindAll());
 })();
