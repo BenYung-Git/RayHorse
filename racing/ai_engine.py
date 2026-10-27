@@ -36,6 +36,18 @@ _DEFAULT_COMMANDS: tuple[tuple[str, str], ...] = (
         "排位及賽馬結果",
         "列出2026/10/19第五場的賽馬結果，按名次排列",
     ),
+    (
+        "英超足球賠率賽果",
+        "列出2024/01/01至2026/10/31的英超足球賠率/賽果,"
+        "顯示聯賽/日期/時間/主場隊/客場隊/是否中立場地/"
+        "入球比率/半場比率/主賠率/和賠率/客賠率. 匯出 Excel.",
+    ),
+    (
+        "香港足球賠率賽果",
+        "列出2024/01/01至2026/10/31的香港足球賠率/賽果,"
+        "顯示聯賽/日期/時間/主場隊/客場隊/是否中立場地/"
+        "入球比率/半場比率/主賠率/和賠率/客賠率. 匯出 Excel.",
+    ),
     ("關鍵字查詢", "查詢【馬名或編號】的相關資料"),
     ("下載全部", "下載資料"),
     ("下載排位", "下載排位"),
@@ -858,6 +870,8 @@ def _help_text() -> str:
         "- 計算今天每一場合計分數（顯示練馬師／騎師／速度各條件分數＋預測／即時賠率＋合計）\n"
         "- 列出 2026/10/19 第五場的賽馬結果，按名次排列\n"
         "- 列出 2026/10/19 第五場的排位及賽馬結果，按名次排列\n"
+        "- 列出 2024/01/01至2026/10/31 的英超足球賠率/賽果（可匯出 Excel）\n"
+        "- 列出 2024/01/01至2026/10/31 的香港足球賠率/賽果（可匯出 Excel）\n"
         "- 查詢 H123 或馬名的相關資料\n"
         "下載操作：\n"
         "- 下載資料／下載一次（馬匹往績＋排位＋即時賠率）\n"
@@ -1696,12 +1710,12 @@ def _parse_score_display_columns(question: str) -> list[str] | None:
 def _parse_date_in_question(question: str) -> str | None:
     """從問題取出 YYYY-MM-DD（支援 2026/10/14、2026-10-14 等）。"""
     matched = re.search(
-        r"(\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}[-/]\d{2,4})",
-        question,
+        r"(\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})",
+        _normalize_question_dates(question),
     )
     if not matched:
         return None
-    key = normalize_date_key(matched.group(1))
+    key = normalize_date_key(matched.group(1).replace(".", "/"))
     return key or None
 
 
@@ -1934,9 +1948,23 @@ def _person_score_counts_before_race(
     return jockey_scores, trainer_scores
 
 
+def _is_football_question(question: str) -> bool:
+    """是否為足球／英超相關指令（避免與賽馬「賽果」混淆）。"""
+    return bool(
+        re.search(
+            r"足球|英超|英格蘭超級|香港足球|馬會足球|EPL|Premier\s*League|footylogic|HKJC.?足球",
+            question,
+            re.I,
+        )
+    )
+
+
 def _is_list_racecard_results_question(question: str) -> bool:
     """列出／顯示某場「排位」及／或「賽馬結果」（可只寫其中一項）。"""
     if re.search(r"下載|更新", question):
+        return False
+    # 足球／英超「賽果」不是賽馬結果
+    if _is_football_question(question):
         return False
     # 合計／計分指令常含「顯示…分數」或「排位的即時賠率」，不可誤判成列排位
     if _is_combined_win_score_question(question):
@@ -1954,6 +1982,263 @@ def _is_list_racecard_results_question(question: str) -> bool:
     if _parse_date_in_question(question):
         return True
     return has_rc and has_res
+
+
+def _is_list_football_question(question: str) -> bool:
+    """列出／顯示足球或英超賠率／賽果。"""
+    if not _is_football_question(question):
+        return False
+    if re.search(r"下載|更新資料|開始下載", question):
+        return False
+    if re.search(r"列出|顯示|查詢|查看|報表|匯出", question):
+        return True
+    return bool(re.search(r"賠率|賽果|賽程", question))
+
+
+def _normalize_question_dates(question: str) -> str:
+    """全形數字／斜線轉半形，方便解析日期區間。"""
+    text = question or ""
+    trans = str.maketrans(
+        {
+            "０": "0",
+            "１": "1",
+            "２": "2",
+            "３": "3",
+            "４": "4",
+            "５": "5",
+            "６": "6",
+            "７": "7",
+            "８": "8",
+            "９": "9",
+            "／": "/",
+            "－": "-",
+            "—": "-",
+            "–": "-",
+            "～": "~",
+        }
+    )
+    return text.translate(trans)
+
+
+def _parse_date_range_in_question(question: str) -> tuple[str, str] | None:
+    """解析「2024/01/01至2026/10/31」→ (YYYY-MM-DD, YYYY-MM-DD)。"""
+    q = _normalize_question_dates(question)
+    matched = re.search(
+        r"(\d{4}[-/.]\d{1,2}[-/.]\d{1,2})\s*(?:至|到|～|~|—|－|-|–)\s*"
+        r"(\d{4}[-/.]\d{1,2}[-/.]\d{1,2})",
+        q,
+    )
+    start = end = ""
+    if matched:
+        start = normalize_date_key(matched.group(1).replace(".", "/"))
+        end = normalize_date_key(matched.group(2).replace(".", "/"))
+    else:
+        # 後備：題目出現兩個日期即視為區間（避免誤用第一個單日查無資料）
+        found = re.findall(r"\d{4}[-/.]\d{1,2}[-/.]\d{1,2}", q)
+        if len(found) >= 2:
+            start = normalize_date_key(found[0].replace(".", "/"))
+            end = normalize_date_key(found[1].replace(".", "/"))
+    if not start or not end:
+        return None
+    if start > end:
+        start, end = end, start
+    return start, end
+
+
+_FOOTBALL_COLUMN_ALIAS: dict[str, str] = {
+    "聯賽": "league",
+    "日期": "match_date",
+    "時間": "kick_off_time",
+    "開賽時間": "kick_off_time",
+    "主場隊": "home_team",
+    "主隊": "home_team",
+    "客場隊": "away_team",
+    "客隊": "away_team",
+    "是否中立場地": "neutral_venue",
+    "中立場地": "neutral_venue",
+    "中立": "neutral_venue",
+    "入球比率": "ft_score",
+    "入球": "ft_score",
+    "全場": "ft_score",
+    "全場比分": "ft_score",
+    "半場比率": "ht_score",
+    "半場": "ht_score",
+    "半場比分": "ht_score",
+    "主賠率": "odds_home",
+    "和賠率": "odds_draw",
+    "客賠率": "odds_away",
+}
+
+_FOOTBALL_COLUMN_LABELS: dict[str, str] = {
+    "league": "聯賽",
+    "match_date": "日期",
+    "kick_off_time": "時間",
+    "home_team": "主場隊",
+    "away_team": "客場隊",
+    "neutral_venue": "是否中立場地",
+    "ft_score": "入球比率",
+    "ht_score": "半場比率",
+    "odds_home": "主賠率",
+    "odds_draw": "和賠率",
+    "odds_away": "客賠率",
+}
+
+_FOOTBALL_DEFAULT_KEYS: tuple[str, ...] = (
+    "league",
+    "match_date",
+    "kick_off_time",
+    "home_team",
+    "away_team",
+    "neutral_venue",
+    "ft_score",
+    "ht_score",
+    "odds_home",
+    "odds_draw",
+    "odds_away",
+)
+
+
+def _parse_football_display_columns(question: str) -> list[tuple[str, str]]:
+    """回傳 [(顯示欄名, 資料鍵), ...]。"""
+    blob = ""
+    matched = re.search(
+        r"(?:顯示|排列出|列出欄位|欄位)\s*[：: ]?\s*(.+?)(?=\n|$|。|．|\.|；|;|匯出)",
+        question or "",
+        flags=re.DOTALL,
+    )
+    if matched:
+        blob = matched.group(1).strip()
+    if not blob:
+        matched = re.search(
+            r"(聯賽)\s*/\s*(日期)\s*/\s*(時間)(?:\s*/\s*[^\n。．.；;匯出]+)?",
+            question or "",
+        )
+        if matched:
+            blob = matched.group(0).strip()
+    keys: list[tuple[str, str]] = []
+    if blob:
+        for part in re.split(r"[/／、，,]+", blob):
+            label = part.strip()
+            if not label:
+                continue
+            key = _FOOTBALL_COLUMN_ALIAS.get(label) or _FOOTBALL_COLUMN_ALIAS.get(
+                label.replace(" ", "")
+            )
+            if key and key not in {k for _, k in keys}:
+                keys.append((label, key))
+    if not keys:
+        keys = [(_FOOTBALL_COLUMN_LABELS[k], k) for k in _FOOTBALL_DEFAULT_KEYS]
+    return keys
+
+
+def _list_football_odds_results(db_path: Path, question: str) -> AiAnswer:
+    """列出香港／英超足球賠率與賽果（支援日期或區間）。"""
+    from .football import (
+        FOOTBALL_SCOPE_EPL,
+        FOOTBALL_SCOPE_HK,
+        fetch_football_display_rows,
+        fetch_football_display_rows_range,
+        list_football_dates,
+    )
+
+    # 同時寫英超＋香港時以較明確者為準；只寫「香港／馬會」→香港；只寫英超→英超
+    has_epl = bool(re.search(r"英超|英格蘭超級|EPL|Premier\s*League", question, re.I))
+    has_hk = bool(re.search(r"香港|馬會足球|hkjc", question, re.I))
+    if has_epl and not has_hk:
+        scope = FOOTBALL_SCOPE_EPL
+    elif has_hk and not has_epl:
+        scope = FOOTBALL_SCOPE_HK
+    elif has_epl:
+        scope = FOOTBALL_SCOPE_EPL
+    else:
+        scope = FOOTBALL_SCOPE_HK
+    scope_label = "英超" if scope == FOOTBALL_SCOPE_EPL else "香港足球"
+    download_hint = (
+        "英超賽程/賽果"
+        if scope == FOOTBALL_SCOPE_EPL
+        else "足球賠率／足球賽果"
+    )
+    date_range = _parse_date_range_in_question(question)
+    single = None
+    if date_range is None:
+        # 勿在「雙日期區間」失敗時只取第一日（常變成 2024/01/01 查無資料）
+        q_dates = re.findall(
+            r"\d{4}[-/.]\d{1,2}[-/.]\d{1,2}",
+            _normalize_question_dates(question),
+        )
+        if len(q_dates) >= 2:
+            start = normalize_date_key(q_dates[0].replace(".", "/"))
+            end = normalize_date_key(q_dates[1].replace(".", "/"))
+            if start and end:
+                if start > end:
+                    start, end = end, start
+                date_range = (start, end)
+        if date_range is None:
+            single = _parse_date_in_question(_normalize_question_dates(question))
+    if date_range is None and single is None:
+        # 無日期：用資料庫最新賽日
+        days = list_football_dates(db_path, scope=scope)
+        if not days:
+            return AiAnswer(
+                f"資料庫尚無{scope_label}賽事，請先到「下載資料」勾選"
+                f"「{download_hint}」後執行下載。"
+            )
+        single = days[0]
+
+    try:
+        if date_range is not None:
+            start, end = date_range
+            records = fetch_football_display_rows_range(
+                db_path, start, end, scope=scope
+            )
+            period = f"{start.replace('-', '/')}～{end.replace('-', '/')}"
+        else:
+            assert single is not None
+            records = fetch_football_display_rows(db_path, single, scope=scope)
+            period = single.replace("-", "/")
+    except Exception as exc:  # noqa: BLE001
+        return AiAnswer(f"讀取{scope_label}資料失敗：{exc}")
+
+    col_specs = _parse_football_display_columns(question)
+    columns = [label for label, _key in col_specs]
+    rows: list[list[str]] = [
+        [str(rec.get(key, "") or "") for _label, key in col_specs] for rec in records
+    ]
+    if not rows:
+        days = list_football_dates(db_path, scope=scope)
+        if not days:
+            tip = f"資料庫尚無{scope_label}賽事，請先下載「{download_hint}」。"
+        else:
+            tip = (
+                f"資料庫內{scope_label}賽日約 {days[-1].replace('-', '/')}～"
+                f"{days[0].replace('-', '/')}（{len(days)} 日）。"
+                f"請調整日期區間，或重新下載「{download_hint}」。"
+            )
+        return AiAnswer(f"{period} 沒有{scope_label}賽事資料。\n{tip}")
+
+    text = f"{scope_label}賠率／賽果：{period}（共 {len(rows)} 場）。\n顯示欄位：{'／'.join(columns)}"
+    want_export = bool(
+        re.search(
+            r"匯出\s*(Excel|excel|xlsx|CSV|csv|報表)?\.?|導出\s*(Excel|excel|xlsx)",
+            question,
+        )
+    )
+    if want_export:
+        suffix = "epl" if scope == FOOTBALL_SCOPE_EPL else "hk_football"
+        if date_range is not None:
+            name = f"ai_{suffix}_{date_range[0]}_{date_range[1]}.xlsx"
+        else:
+            name = f"ai_{suffix}_{single}.xlsx"
+        text += "\n正在開啟 Excel 匯出（請選擇儲存位置）。"
+        return AiAnswer(
+            text,
+            columns=columns,
+            rows=rows,
+            action="export_excel",
+            action_arg=name,
+        )
+    text += "\n可按「匯出報表」另存 Excel／CSV。"
+    return AiAnswer(text, columns=columns, rows=rows)
 
 
 def _fmt_display_date(raw: str) -> str:
@@ -3549,6 +3834,9 @@ def _local_answer(db_path: Path, question: str) -> AiAnswer:
         # 不可先被「列出排位／賽果」路徑吃掉。
         if _is_combined_win_score_question(text):
             return _race_combined_win_score(conn, text)
+        # 足球／英超須優先於賽馬「賽果」路徑（避免「英超…賽果」被誤判）
+        if _is_list_football_question(text):
+            return _list_football_odds_results(db_path, text)
         # 列出排位＋賽馬結果須優先於「賠率」查詢
         if _is_list_racecard_results_question(text):
             return _list_racecard_and_results(conn, text, db_path=db_path)

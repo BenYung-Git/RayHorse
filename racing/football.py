@@ -1041,6 +1041,150 @@ def fetch_football_epl_display_rows(
     )
 
 
+def _football_display_row_from_db(
+    row: Any,
+    *,
+    had_by_id: dict[str, dict[str, str]],
+    had_by_teams: dict[tuple[str, str], dict[str, str]],
+    scope_key: str,
+) -> dict[str, str] | None:
+    home = str(row["home_team"] or "").strip()
+    away = str(row["away_team"] or "").strip()
+    if not home or not away:
+        return None
+    mid = str(row["match_id"] or "")
+    day_text, time_text = _kickoff_date_time(
+        str(row["match_date"] or ""), str(row["kick_off_time"] or "")
+    )
+    had = had_by_id.get(mid) or had_by_teams.get((home, away), {})
+    odds_home = str(row["odds_home"] or "").strip() or had.get("home", "")
+    odds_draw = str(row["odds_draw"] or "").strip() or had.get("draw", "")
+    odds_away = str(row["odds_away"] or "").strip() or had.get("away", "")
+    neutral = _neutral_label(str(row["neutral_venue"] or ""))
+    if not neutral:
+        venue = str(row["venue"] or "")
+        if "中立" in venue or "neutral" in venue.lower():
+            neutral = "是"
+    league = (
+        str(row["tournament_name"] or "")
+        or str(row["tournament_code"] or "")
+        or (EPL_NAME if scope_key == FOOTBALL_SCOPE_EPL else "")
+    )
+    return {
+        "match_id": mid,
+        "league": league,
+        "match_date": day_text,
+        "kick_off_time": time_text,
+        "home_team": home,
+        "away_team": away,
+        "neutral_venue": neutral,
+        "ft_score": _format_score_ratio(
+            str(row["home_score"] or ""), str(row["away_score"] or "")
+        ),
+        "ht_score": _format_score_ratio(
+            str(row["home_ht_score"] or ""), str(row["away_ht_score"] or "")
+        ),
+        "odds_home": odds_home,
+        "odds_draw": odds_draw,
+        "odds_away": odds_away,
+        "status": str(row["status"] or ""),
+    }
+
+
+def fetch_football_display_rows_range(
+    db_path: Path,
+    start_date: str,
+    end_date: str,
+    *,
+    scope: str | None = FOOTBALL_SCOPE_HK,
+) -> list[dict[str, str]]:
+    """依日期區間列出顯示列（含聯賽／主客／比分／主和客賠率）。"""
+    init_db(db_path)
+    start = normalize_football_date(start_date.replace("/", "-") if start_date else "")
+    end = normalize_football_date(end_date.replace("/", "-") if end_date else "")
+    if not start or not end:
+        return []
+    if start > end:
+        start, end = end, start
+    scope_key = normalize_football_scope(scope)
+    scope_sql, scope_params = _football_scope_sql()
+    if scope_key == FOOTBALL_SCOPE_HK:
+        scope_sql = scope_sql.replace(" = ?", " != ?")
+    with get_connection(db_path) as conn:
+        _ensure_football_schema(conn)
+        rows = conn.execute(
+            f"""
+            SELECT match_id, match_date, kick_off_time, tournament_name, tournament_code,
+                   home_team, away_team, venue, neutral_venue,
+                   home_score, away_score, home_ht_score, away_ht_score,
+                   odds_home, odds_draw, odds_away, status
+            FROM football_matches
+            WHERE replace(substr(match_date, 1, 10), '/', '-') >= ?
+              AND replace(substr(match_date, 1, 10), '/', '-') <= ?
+              AND {scope_sql}
+            ORDER BY match_date, kick_off_time, home_team, away_team
+            """,
+            (start, end, *scope_params),
+        ).fetchall()
+        # 區間一次載入 HAD（避免逐日查詢）
+        had_by_id: dict[str, dict[str, str]] = {}
+        had_rows = conn.execute(
+            """
+            SELECT o.match_id, o.selection, o.odds
+            FROM football_odds o
+            JOIN football_matches m ON m.match_id = o.match_id
+            WHERE replace(substr(m.match_date, 1, 10), '/', '-') >= ?
+              AND replace(substr(m.match_date, 1, 10), '/', '-') <= ?
+              AND o.odds_type = 'HAD'
+              AND ifnull(o.inplay, 0) = 0
+              AND ifnull(o.odds, '') != ''
+            """,
+            (start, end),
+        ).fetchall()
+        for hr in had_rows:
+            mid = str(hr["match_id"] or "").strip()
+            if not mid:
+                continue
+            bucket = had_by_id.setdefault(mid, {"home": "", "draw": "", "away": ""})
+            side = _had_side(str(hr["selection"] or ""))
+            odds = str(hr["odds"] or "").strip()
+            if side and odds and not bucket[side]:
+                bucket[side] = odds
+        had_by_teams: dict[tuple[str, str], dict[str, str]] = {}
+    if scope_key == FOOTBALL_SCOPE_EPL:
+        best: dict[tuple[str, str, str], Any] = {}
+        for row in rows:
+            home = str(row["home_team"] or "").strip()
+            away = str(row["away_team"] or "").strip()
+            day = normalize_football_date(str(row["match_date"] or ""))
+            if not home or not away or not day:
+                continue
+            key = (day, home, away)
+            prev = best.get(key)
+            if prev is None or _epl_row_priority(row) > _epl_row_priority(prev):
+                best[key] = row
+        rows = list(best.values())
+    out: list[dict[str, str]] = []
+    for row in sorted(
+        rows,
+        key=lambda r: (
+            str(r["match_date"] or ""),
+            str(r["kick_off_time"] or ""),
+            str(r["home_team"] or ""),
+            str(r["away_team"] or ""),
+        ),
+    ):
+        item = _football_display_row_from_db(
+            row,
+            had_by_id=had_by_id,
+            had_by_teams=had_by_teams,
+            scope_key=scope_key,
+        )
+        if item:
+            out.append(item)
+    return out
+
+
 def _footylogic_headers() -> dict[str, str]:
     return {
         "User-Agent": (

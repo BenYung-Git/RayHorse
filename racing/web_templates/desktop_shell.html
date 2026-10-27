@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Racing｜WEB 介面（對齊 Windows）</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='desktop.css') }}?v=multisort2">
-  <script src="{{ url_for('static', filename='grid_nav.js') }}?v=multisort2" defer></script>
-  <script src="{{ url_for('static', filename='standard_times.js') }}?v=multisort2"></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='desktop.css') }}?v=aiexport1">
+  <script src="{{ url_for('static', filename='grid_nav.js') }}?v=aiexport1" defer></script>
+  <script src="{{ url_for('static', filename='standard_times.js') }}?v=aiexport1"></script>
 </head>
 <body class="hppv-desktop" data-theme="fusion_tech">
   <div class="menubar" id="menubar">
@@ -34,6 +34,7 @@
       <button type="button">介面</button>
       <div class="dropdown">
         <button type="button" data-action="print"><span class="mi mi-print"></span>列印／報表</button>
+        <button type="button" data-action="mobile-web"><span class="mi mi-web"></span>手機版介面</button>
         <button type="button" data-action="legacy-web"><span class="mi mi-web"></span>舊版 Web Dashboard</button>
         <div class="menu-sep"></div>
         <button type="button" data-action="exit"><span class="mi mi-close"></span>離開</button>
@@ -1937,6 +1938,8 @@
         renderSideMenu();
         renderMainMenuItems();
         setStatus("主選單樣式：" + MENU_STYLES[menuStyleIdx][1]);
+      } else if (action === "mobile-web") {
+        location.href = "{{ url_for('mobile_app_shell') }}";
       } else if (action === "legacy-web") {
         location.href = "{{ url_for('legacy_dashboard') }}";
       } else if (action === "exit") {
@@ -2712,6 +2715,38 @@
       aiDraft = "";
       aiRestoreLastTable();
     }
+    async function aiDownloadExcel(columns, rows, filename) {
+      const cols = columns || [];
+      const data = rows || [];
+      if (!data.length) {
+        alert("沒有可匯出的報表。");
+        return false;
+      }
+      const name = (filename || "ai_report.xlsx").replace(/^.*[\\/]/, "");
+      const res = await fetch("/api/app/ai/export", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ columns: cols, rows: data, filename: name }),
+      });
+      if (!res.ok) {
+        let msg = "匯出失敗";
+        try {
+          const err = await res.json();
+          if (err && err.message) msg = err.message;
+        } catch (_e) { /* ignore */ }
+        alert(msg);
+        return false;
+      }
+      const blob = await res.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = name.endsWith(".xlsx") || name.endsWith(".csv") ? name : `${name}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(a.href);
+      return true;
+    }
     async function sendAi() {
       if (aiBusy) return;
       const input = document.getElementById("aiQ");
@@ -2737,7 +2772,17 @@
         if (data.action === "open_download") openTab("download");
         if (data.action === "open_racecard") openTab("racecard");
         if (data.action === "open_horses") openTab("horses");
-        document.getElementById("aiStatus").textContent = data.ok === false ? "失敗" : "完成";
+        if (data.action === "export_excel") {
+          document.getElementById("aiStatus").textContent = "正在匯出 Excel…";
+          const ok = await aiDownloadExcel(
+            data.columns,
+            data.rows,
+            data.action_arg || "ai_report.xlsx"
+          );
+          document.getElementById("aiStatus").textContent = ok ? "已匯出 Excel" : "匯出取消／失敗";
+        } else {
+          document.getElementById("aiStatus").textContent = data.ok === false ? "失敗" : "完成";
+        }
       } catch (err) {
         aiAppend("assistant", "錯誤：" + err);
         document.getElementById("aiStatus").textContent = "錯誤";
@@ -2973,20 +3018,18 @@
       aiShowTable([], []);
       document.getElementById("aiStatus").textContent = "已清除對話";
     });
-    document.getElementById("btnAiExport").addEventListener("click", () => {
-      const cols = Array.from(document.querySelectorAll("#aiGrid thead th")).map((th) => th.textContent);
-      const lines = [cols.join("\t")];
-      document.querySelectorAll("#aiGrid tbody tr").forEach((tr) => {
-        lines.push(Array.from(tr.querySelectorAll("td")).map((td) => td.textContent).join("\t"));
+    document.getElementById("btnAiExport").addEventListener("click", async () => {
+      const cols = Array.from(document.querySelectorAll("#aiGrid thead th")).map((th) => {
+        return String(th.dataset.label || th.textContent || "").replace(/\s*[↑↓]\d*\s*$/, "").trim();
       });
-      if (lines.length <= 1) { alert("沒有可匯出的報表。"); return; }
-      const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = "ai_report.csv";
-      a.click();
-      URL.revokeObjectURL(a.href);
-      document.getElementById("aiStatus").textContent = "已匯出報表";
+      const rows = [];
+      document.querySelectorAll("#aiGrid tbody tr:not(.grid-pad)").forEach((tr) => {
+        rows.push(Array.from(tr.querySelectorAll("td")).map((td) => td.textContent || ""));
+      });
+      if (!rows.length) { alert("沒有可匯出的報表。"); return; }
+      document.getElementById("aiStatus").textContent = "正在匯出 Excel…";
+      const ok = await aiDownloadExcel(cols, rows, "ai_report.xlsx");
+      document.getElementById("aiStatus").textContent = ok ? "已匯出 Excel" : "匯出取消／失敗";
     });
     document.getElementById("btnAiUpload").addEventListener("click", () => {
       alert("上傳文件：請於 Windows 介面的 AI 助手按「上傳文件」。");

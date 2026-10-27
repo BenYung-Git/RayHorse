@@ -330,10 +330,35 @@ def message_image(filename: str):
     return send_from_directory(str(folder), filename)
 
 
+_MOBILE_UA_RE = re.compile(
+    r"Mobile|Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini",
+    re.I,
+)
+
+
+def _request_wants_mobile() -> bool:
+    """手機 UA 導向 /m；?desktop=1 強制桌面、?mobile=1 強制手機。"""
+    if (request.args.get("desktop") or "").strip() == "1":
+        return False
+    if (request.args.get("mobile") or "").strip() == "1":
+        return True
+    ua = request.headers.get("User-Agent") or ""
+    return bool(_MOBILE_UA_RE.search(ua))
+
+
 @app.get("/")
 def index():
-    """首頁與 Windows「WEB 介面」相同，避免其他電腦看到舊 Dashboard。"""
+    """首頁：手機自動進手機版，其餘進與 Windows 對齊的 WEB 主殼。"""
+    if _request_wants_mobile():
+        return redirect(url_for("mobile_app_shell"))
     return redirect(url_for("desktop_app_shell"))
+
+
+@app.get("/m")
+def mobile_app_shell() -> str:
+    """手機觸控介面：底欄選單＋卡片式資料（共用 /api/app/*）。"""
+    init_db(DB_PATH)
+    return render_template("mobile_shell.html")
 
 
 @app.get("/dashboard")
@@ -850,6 +875,9 @@ def horse_detail(horse_id: str) -> str:
 @app.get("/app")
 def desktop_app_shell() -> str:
     """與 Windows 主視窗對齊的 WEB 主殼。"""
+    # 手機 UA 預設導向 /m；帶 ?desktop=1 則維持桌面版
+    if _request_wants_mobile():
+        return redirect(url_for("mobile_app_shell"))
     init_db(DB_PATH)
     return render_template("desktop_shell.html")
 
@@ -1651,6 +1679,60 @@ def api_app_ai():
             "action": ans.action,
             "action_arg": ans.action_arg,
         }
+    )
+
+
+@app.post("/api/app/ai/export")
+def api_app_ai_export():
+    """將 AI 報表列匯出為 Excel／CSV 並下載（瀏覽器另存）。"""
+    from racing.ai_engine import export_rows
+
+    payload = request.get_json(silent=True) or {}
+    columns = payload.get("columns") or []
+    rows = payload.get("rows") or []
+    if not isinstance(columns, list) or not isinstance(rows, list) or not rows:
+        return jsonify({"ok": False, "message": "沒有可匯出的報表。"}), 400
+    col_text = [str(c) for c in columns]
+    row_text = [[("" if c is None else str(c)) for c in (row or [])] for row in rows]
+    raw_name = str(payload.get("filename") or "ai_report.xlsx").strip() or "ai_report.xlsx"
+    # 只取檔名，避免路徑注入
+    name = Path(raw_name.replace("\\", "/")).name
+    suffix = Path(name).suffix.lower()
+    if suffix not in {".xlsx", ".csv"}:
+        name = f"{Path(name).stem or 'ai_report'}.xlsx"
+        suffix = ".xlsx"
+    out = io.BytesIO()
+    if suffix == ".csv":
+        import csv
+
+        text = io.StringIO()
+        writer = csv.writer(text)
+        if col_text:
+            writer.writerow(col_text)
+        writer.writerows(row_text)
+        out.write(text.getvalue().encode("utf-8-sig"))
+        mime = "text/csv; charset=utf-8"
+    else:
+        # 寫入暫存再讀回 BytesIO（xlsxwriter 需真實路徑或檔案物件）
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+        try:
+            export_rows(col_text, row_text, tmp_path)
+            out.write(tmp_path.read_bytes())
+        finally:
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    out.seek(0)
+    return send_file(
+        out,
+        mimetype=mime,
+        as_attachment=True,
+        download_name=name,
     )
 
 

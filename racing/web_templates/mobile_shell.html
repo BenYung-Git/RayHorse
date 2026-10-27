@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b1c24">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>Racing｜手機版</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='mobile.css') }}?v=m1">
+  <script src="{{ url_for('static', filename='mobile_app.js') }}?v=m1" defer></script>
+</head>
+<body class="racing-mobile">
+  <div class="m-app">
+    <header class="m-top">
+      <div class="m-brand">Racing<small id="mTitle">功能選單</small></div>
+      <div class="m-top-actions">
+        <a class="m-icon-btn" href="{{ url_for('desktop_app_shell', desktop=1) }}" title="桌面版">桌面</a>
+      </div>
+    </header>
+
+    <main class="m-main">
+      <!-- 首頁功能選單 -->
+      <section class="m-panel active" id="panel-home">
+        <div class="m-hero">
+          <h1>Racing</h1>
+          <p>以觸控卡片瀏覽排位、賽果、馬匹與足球資料，並可問 AI。</p>
+        </div>
+        <div class="m-grid-menu">
+          <button type="button" class="m-menu-card" data-go="racecard">
+            <span class="ico">排</span>
+            <strong>排位</strong>
+            <span>賽日場次與即時／預測賠率</span>
+          </button>
+          <button type="button" class="m-menu-card" data-go="results">
+            <span class="ico">果</span>
+            <strong>賽馬結果</strong>
+            <span>名次、騎師、獨贏賠率</span>
+          </button>
+          <button type="button" class="m-menu-card" data-go="horses">
+            <span class="ico">馬</span>
+            <strong>馬匹／往績</strong>
+            <span>搜尋馬名並看近期戰績</span>
+          </button>
+          <button type="button" class="m-menu-card" data-go="football_hk">
+            <span class="ico">港</span>
+            <strong>香港足球</strong>
+            <span>賠率與賽果</span>
+          </button>
+          <button type="button" class="m-menu-card" data-go="football_epl">
+            <span class="ico">英</span>
+            <strong>英超足球</strong>
+            <span>賠率與賽果</span>
+          </button>
+          <button type="button" class="m-menu-card" data-go="ai">
+            <span class="ico">AI</span>
+            <strong>AI 助手</strong>
+            <span>用自然語言查資料</span>
+          </button>
+        </div>
+        <a class="m-desktop-link" href="{{ url_for('desktop_app_shell', desktop=1) }}">切換完整桌面版</a>
+      </section>
+
+      <!-- 排位 -->
+      <section class="m-panel" id="panel-racecard">
+        <div class="m-toolbar">
+          <select class="m-select" id="racecardMeeting" aria-label="賽日"></select>
+          <button type="button" class="m-btn secondary" id="btnReloadRacecard">重新載入</button>
+        </div>
+        <p class="m-meta" id="racecardMeta">—</p>
+        <div class="m-chips" id="raceChips"></div>
+        <div class="m-list" id="raceList">
+          <div class="m-empty">載入中…</div>
+        </div>
+      </section>
+
+      <!-- 賽馬結果 -->
+      <section class="m-panel" id="panel-results">
+        <div class="m-toolbar">
+          <select class="m-select" id="resultsMeeting" aria-label="賽日"></select>
+          <select class="m-select" id="resultsRace" aria-label="場次">
+            <option value="all">全部場次</option>
+          </select>
+          <button type="button" class="m-btn secondary" id="btnReloadResults">重新載入</button>
+        </div>
+        <p class="m-meta" id="resultsMeta">—</p>
+        <div class="m-list" id="resultsList">
+          <div class="m-empty">載入中…</div>
+        </div>
+      </section>
+
+      <!-- 馬匹 -->
+      <section class="m-panel" id="panel-horses">
+        <div class="m-toolbar">
+          <input class="m-input" id="horseQ" type="search" placeholder="馬名／烙號／HorseId" enterkeyhint="search">
+          <button type="button" class="m-btn" id="btnSearchHorse">搜尋</button>
+        </div>
+        <p class="m-meta" id="horseMeta">—</p>
+        <div id="horseDetail" hidden></div>
+        <div class="m-list" id="horseList">
+          <div class="m-empty">輸入關鍵字或直接搜尋以載入馬匹。</div>
+        </div>
+      </section>
+
+      <!-- 更多：足球／AI -->
+      <section class="m-panel" id="panel-more">
+        <div id="moreFootball" hidden>
+          <div class="m-toolbar">
+            <button type="button" class="m-btn secondary" id="btnFbHk">香港</button>
+            <button type="button" class="m-btn secondary" id="btnFbEpl">英超</button>
+            <select class="m-select" id="footballMeeting" aria-label="賽日"></select>
+          </div>
+          <p class="m-meta" id="footballMeta">—</p>
+          <div class="m-list" id="footballList">
+            <div class="m-empty">載入中…</div>
+          </div>
+        </div>
+        <div id="moreAi" hidden>
+          <div class="m-ai-log" id="aiLog"></div>
+          <div class="m-ai-compose">
+            <textarea id="aiQ" placeholder="例如：列出最近一季英超賽果、或某日排位熱門…"></textarea>
+            <button type="button" class="m-btn accent" id="btnAiSend">送出</button>
+          </div>
+          <div class="m-list" id="aiTable" style="margin-top:12px"></div>
+        </div>
+        <div id="moreHint" class="m-empty" style="margin-top:8px">
+          從首頁選「香港／英超足球」或「AI 助手」，或點底欄「更多」後再從首頁進入。
+        </div>
+      </section>
+    </main>
+
+    <nav class="m-nav" aria-label="主要功能">
+      <button type="button" data-panel="home" class="active"><span class="ni">⌂</span>首頁</button>
+      <button type="button" data-panel="racecard"><span class="ni">排</span>排位</button>
+      <button type="button" data-panel="results"><span class="ni">果</span>賽果</button>
+      <button type="button" data-panel="horses"><span class="ni">馬</span>馬匹</button>
+      <button type="button" data-panel="more"><span class="ni">⋯</span>更多</button>
+    </nav>
+  </div>
+  <p class="m-status" id="mStatus" style="display:none" aria-live="polite"></p>
+</body>
+</html>

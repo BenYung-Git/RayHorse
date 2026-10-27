@@ -403,7 +403,7 @@ class AiAssistantPanel(QWidget):
         self._append("assistant", f"已儲存文件「{path.name}」，目前共 {count} 份。可問「在文件中找……」。", persist=True)
         self._status.setText(f"已上傳 {path.name}")
 
-    def _export_table(self) -> None:
+    def _export_table(self, suggested_name: str | None = None) -> None:
         if self._table.rowCount() <= 0 or self._table.columnCount() <= 0:
             QMessageBox.information(self, "匯出報表", "目前沒有可匯出的列表。")
             return
@@ -426,7 +426,10 @@ class AiAssistantPanel(QWidget):
                     for c_index in range(self._table.columnCount())
                 ]
             )
-        default = str(self._config.data_dir / "ai_report.xlsx")
+        hint = (suggested_name or "").strip() or "ai_report.xlsx"
+        if Path(hint).suffix.lower() not in {".xlsx", ".csv"}:
+            hint = f"{hint}.xlsx"
+        default = str(self._config.data_dir / Path(hint).name)
         path_text, _selected = QFileDialog.getSaveFileName(
             self,
             "匯出報表",
@@ -434,6 +437,7 @@ class AiAssistantPanel(QWidget):
             "Excel (*.xlsx);;CSV (*.csv)",
         )
         if not path_text:
+            self._status.setText("已取消匯出")
             return
         path = Path(path_text)
         if path.suffix.lower() not in {".xlsx", ".csv"}:
@@ -444,6 +448,7 @@ class AiAssistantPanel(QWidget):
             QMessageBox.warning(self, "匯出報表", str(exc))
             return
         self._status.setText(f"已匯出 {path.name}")
+        QMessageBox.information(self, "匯出報表", f"已儲存：\n{path}")
 
     def _clear_chat(self) -> None:
         if (
@@ -504,7 +509,9 @@ class AiAssistantPanel(QWidget):
         result = self._worker.result if self._worker is not None else None
         ans = result if isinstance(result, AiAnswer) else AiAnswer("沒有取得回覆。")
         extra = ""
-        if ans.action and self._action_handler is not None:
+        # 匯出須等報表 Grid 填好後再開對話框；其餘 action 交主視窗處理
+        defer_export = ans.action == "export_excel"
+        if ans.action and not defer_export and self._action_handler is not None:
             try:
                 extra = self._action_handler(ans.action, ans.action_arg) or ""
             except Exception as exc:  # noqa: BLE001
@@ -513,6 +520,8 @@ class AiAssistantPanel(QWidget):
         self._append("assistant", text, persist=True)
         self._show_table(ans.columns, ans.rows)
         self._status.setText("完成")
+        if defer_export:
+            self._export_table(suggested_name=ans.action_arg)
         self._input.setFocus()
 
     def _on_error(self, message: str) -> None:
