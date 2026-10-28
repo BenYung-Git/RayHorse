@@ -959,8 +959,12 @@ def api_app_racecard():
         _normalize_post_time,
         _race_tab_label,
         get_last_update_at,
+        get_overnight_odds_confirmed,
+        get_racecard_meta_value,
         list_stored_racecard_meetings,
         odds_diff_display,
+        overnight_odds_confirmed_meta_key,
+        sync_overnight_odds_from_immediate,
     )
 
     init_db(DB_PATH)
@@ -985,6 +989,8 @@ def api_app_racecard():
                 "meetings": [],
                 "columns": list(RACECARD_DISPLAY_COLUMNS),
                 "races": [],
+                "overnight_confirmed": False,
+                "overnight_confirmed_at": "",
             }
         )
 
@@ -1007,6 +1013,18 @@ def api_app_racecard():
                 ):
                     race_date, racecourse = rd, rc
                     break
+
+    overnight_confirmed = get_overnight_odds_confirmed(cfg, race_date, racecourse)
+    overnight_confirmed_at = ""
+    if overnight_confirmed:
+        overnight_confirmed_at = get_racecard_meta_value(
+            cfg, overnight_odds_confirmed_meta_key(race_date, racecourse)
+        )
+    else:
+        # 未確認：讀取前把隔夜對齊即時（相容舊資料空白欄）
+        with get_connection(DB_PATH) as conn:
+            sync_overnight_odds_from_immediate(conn, race_date, racecourse)
+            conn.commit()
 
     columns = list(RACECARD_DISPLAY_COLUMNS)
     db_columns = list(RACECARD_DB_DISPLAY_COLUMNS)
@@ -1113,8 +1131,30 @@ def api_app_racecard():
             "meetings": meeting_opts,
             "columns": columns,
             "races": races,
+            "overnight_confirmed": overnight_confirmed,
+            "overnight_confirmed_at": overnight_confirmed_at,
         }
     )
+
+
+@app.post("/api/app/racecard/confirm_overnight")
+def api_app_racecard_confirm_overnight():
+    """確認隔夜賠率：以目前即時寫入隔夜並鎖定。"""
+    from racing.ui.racecard_rank_viewer import confirm_overnight_odds
+
+    init_db(DB_PATH)
+    payload = request.get_json(silent=True) or {}
+    race_date = str(
+        payload.get("date") or request.args.get("date") or ""
+    ).strip()
+    racecourse = str(
+        payload.get("course") or request.args.get("course") or ""
+    ).strip().upper()
+    if not race_date or not racecourse:
+        return jsonify({"ok": False, "message": "請指定賽日與場地。"}), 400
+    result = confirm_overnight_odds(cfg, race_date, racecourse)
+    status = 200 if result.get("ok") else 400
+    return jsonify(result), status
 
 
 @app.get("/api/app/results")

@@ -132,6 +132,8 @@
       <section class="panel" id="panel-racecard">
         <div class="search-row">
           <span id="racecardMeta" class="count-label grow">上次更新時間：尚未更新</span>
+          <span id="racecardOvernightMeta" class="count-label">隔夜賠率：跟隨即時</span>
+          <button class="btn" type="button" id="btnConfirmOvernight" title="以目前即時賠率寫入隔夜並鎖定；之後即時更新不會再改隔夜"><span class="mi mi-save"></span>確認隔夜賠率</button>
           <button class="btn" type="button" id="btnReloadRacecard" title="從網站更新最新排位（對齊 Windows「更新資料」）"><span class="mi mi-refresh"></span>更新資料</button>
         </div>
         <div class="search-row">
@@ -1102,6 +1104,7 @@
       document.getElementById("racecardMeta").textContent =
         lu === "尚未更新" || !lu ? "上次更新時間：尚未更新"
           : `上次更新時間：${lu}`;
+      updateRacecardOvernightMeta(racecardPayload);
       const meetings = racecardPayload.meetings || [];
       const curKey = (racecardPayload.race_date || "") + "|" + (racecardPayload.racecourse_code || "");
       // 賽日清單只在首次載入／強制刷新時寫入（對齊 Windows：切換賽日不重讀清單）
@@ -1372,6 +1375,59 @@
         }
       }
     }
+    function updateRacecardOvernightMeta(payload) {
+      const el = document.getElementById("racecardOvernightMeta");
+      const btn = document.getElementById("btnConfirmOvernight");
+      if (!el) return;
+      const confirmed = !!(payload && payload.overnight_confirmed);
+      const at = (payload && payload.overnight_confirmed_at) || "";
+      if (confirmed) {
+        el.textContent = at ? `隔夜賠率：已確認（${at}）` : "隔夜賠率：已確認";
+        if (btn) btn.textContent = "再次確認隔夜賠率";
+      } else {
+        el.textContent = "隔夜賠率：跟隨即時";
+        if (btn) {
+          btn.innerHTML = `<span class="mi mi-save"></span>確認隔夜賠率`;
+        }
+      }
+      if (btn) {
+        btn.disabled = !(payload && payload.racecourse_code && payload.race_date && payload.race_date !== "—");
+      }
+    }
+
+    async function confirmRacecardOvernight() {
+      const p = racecardPayload || {};
+      const date = p.race_date || "";
+      const course = p.racecourse_code || "";
+      if (!date || date === "—" || !course) {
+        alert("尚無排位賽日，無法確認隔夜賠率。");
+        return;
+      }
+      if (!confirm("將以目前「即時賠率」寫入「隔夜賠率」並鎖定。\n之後更新即時賠率時，隔夜賠率不會再變更。\n\n確定？")) {
+        return;
+      }
+      const btn = document.getElementById("btnConfirmOvernight");
+      if (btn) btn.disabled = true;
+      try {
+        const res = await fetch("/api/app/racecard/confirm_overnight", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ date, course }),
+        });
+        const data = await res.json();
+        if (!data.ok) {
+          alert(data.message || "確認隔夜賠率失敗");
+          return;
+        }
+        setStatus(data.message || "已確認隔夜賠率");
+        await loadRacecard({ date, course });
+      } catch (err) {
+        alert("確認隔夜賠率失敗：" + err);
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+
     async function updateRacecardFromWeb() {
       const btn = document.getElementById("btnReloadRacecard");
       btn.disabled = true;
@@ -2013,6 +2069,7 @@
       if (id) selectHorse(id, tr);
     });
     document.getElementById("btnReloadRacecard").addEventListener("click", () => updateRacecardFromWeb());
+    document.getElementById("btnConfirmOvernight").addEventListener("click", () => confirmRacecardOvernight());
     document.getElementById("racecardMeeting").addEventListener("change", () => {
       const v = document.getElementById("racecardMeeting").value || "";
       const [d, c] = v.split("|");

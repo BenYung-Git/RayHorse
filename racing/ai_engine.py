@@ -43,6 +43,12 @@ _DEFAULT_COMMANDS: tuple[tuple[str, str], ...] = (
         "入球比率/半場比率/主賠率/和賠率/客賠率. 匯出 Excel.",
     ),
     (
+        "英超球隊賽果",
+        "列出2024/01/01至2026/10/31,所有關於利物浦隊的英超足球賠率/賽果,"
+        "顯示聯賽/日期/時間/主場隊/客場隊/是否中立場地/"
+        "入球比率/半場比率/主賠率/和賠率/客賠率.按日期由大至小排列.",
+    ),
+    (
         "香港足球賠率賽果",
         "列出2024/01/01至2026/10/31的香港足球賠率/賽果,"
         "顯示聯賽/日期/時間/主場隊/客場隊/是否中立場地/"
@@ -1533,6 +1539,7 @@ _SCORE_COLUMN_ALIAS: dict[str, str] = {
     "當日負磅": "當天負磅",
     "實際負磅": "當天負磅",
     "預測賠率": "預測賠率",
+    "隔夜賠率": "隔夜賠率",
     "即時賠率": "即時賠率",
     "賠率": "即時賠率",
     "獨贏賠率": "即時賠率",
@@ -2131,6 +2138,249 @@ def _parse_football_display_columns(question: str) -> list[tuple[str, str]]:
     return keys
 
 
+# 常見英超隊中英別名（資料庫多為中文隊名；查詢可用中／英）。
+_FOOTBALL_TEAM_ALIASES: dict[str, frozenset[str]] = {
+    "利物浦": frozenset({"利物浦", "liverpool", "liverpool fc", "lfc"}),
+    "曼聯": frozenset({"曼聯", "manchester united", "man united", "man utd", "mufc"}),
+    "曼城": frozenset({"曼城", "manchester city", "man city", "mcfc"}),
+    "車路士": frozenset({"車路士", "chelsea", "chelsea fc"}),
+    "阿仙奴": frozenset({"阿仙奴", "arsenal", "arsenal fc", "afc"}),
+    "熱刺": frozenset({"熱刺", "tottenham", "spurs", "tottenham hotspur"}),
+    "紐卡素": frozenset({"紐卡素", "newcastle", "newcastle united"}),
+    "阿士東維拉": frozenset({"阿士東維拉", "aston villa"}),
+    "韋斯咸": frozenset({"韋斯咸", "west ham", "west ham united"}),
+    "白禮頓": frozenset({"白禮頓", "brighton", "brighton & hove albion"}),
+    "水晶宮": frozenset({"水晶宮", "crystal palace"}),
+    "富咸": frozenset({"富咸", "fulham"}),
+    "賓福特": frozenset({"賓福特", "brentford"}),
+    "狼隊": frozenset({"狼隊", "wolves", "wolverhampton"}),
+    "愛華頓": frozenset({"愛華頓", "everton"}),
+    "諾定咸森林": frozenset({"諾定咸森林", "nottingham forest", "forest"}),
+    "般尼茅夫": frozenset({"般尼茅夫", "bournemouth", "afc bournemouth"}),
+    "列斯聯": frozenset({"列斯聯", "leeds", "leeds united"}),
+    "葉士域治": frozenset({"葉士域治", "ipswich", "ipswich town"}),
+    "修咸頓": frozenset({"修咸頓", "southampton"}),
+    "李斯特城": frozenset({"李斯特城", "leicester", "leicester city"}),
+    "新特蘭": frozenset({"新特蘭", "sunderland"}),
+    "高雲地利": frozenset({"高雲地利", "coventry", "coventry city"}),
+    "侯城": frozenset({"侯城", "hull", "hull city"}),
+    "般尼": frozenset({"般尼", "burnley"}),
+    "盧頓": frozenset({"盧頓", "luton", "luton town"}),
+    "錫菲聯": frozenset({"錫菲聯", "sheffield united", "sheff utd"}),
+}
+
+_FOOTBALL_TEAM_STOPWORDS = frozenset(
+    {
+        "所有",
+        "全部",
+        "英超",
+        "英格蘭",
+        "足球",
+        "賠率",
+        "賽果",
+        "賽程",
+        "香港",
+        "聯賽",
+        "日期",
+        "時間",
+        "主場",
+        "客場",
+        "列出",
+        "顯示",
+        "查詢",
+        "匯出",
+        "excel",
+        "關於",
+        "比賽",
+        "球隊",
+        "球會",
+    }
+)
+
+
+def _normalize_football_team_token(raw: str) -> str:
+    text = (raw or "").strip()
+    text = re.sub(r"^(?:所有|全部)?(?:關於|有關)", "", text).strip()
+    text = re.sub(r"^[的與和及\s]+|[的與和及\s]+$", "", text)
+    text = re.sub(
+        r"(足球(?:會|隊|俱樂部)?|球會|俱樂部|隊|club|fc|afc)$",
+        "",
+        text,
+        flags=re.I,
+    ).strip()
+    text = re.sub(r"\s+", " ", text)
+    if text.lower() in _FOOTBALL_TEAM_STOPWORDS:
+        return ""
+    return text
+
+
+def _expand_football_team_tokens(tokens: list[str]) -> list[str]:
+    """把查詢隊名擴成中英別名（保留原詞）。"""
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def _add(value: str) -> None:
+        v = (value or "").strip()
+        if not v:
+            return
+        key = v.lower()
+        if key in seen:
+            return
+        seen.add(key)
+        out.append(v)
+
+    for token in tokens:
+        base = _normalize_football_team_token(token)
+        if not base:
+            continue
+        _add(base)
+        bl = base.lower()
+        for canon, aliases in _FOOTBALL_TEAM_ALIASES.items():
+            pool = {canon.lower(), *(a.lower() for a in aliases)}
+            if bl in pool:
+                _add(canon)
+                for a in aliases:
+                    _add(a)
+                break
+    return out
+
+
+def _parse_football_team_filter(question: str) -> list[str]:
+    """解析「關於利物浦隊／利物浦的英超…」等隊名條件。"""
+    q = question or ""
+    found: list[str] = []
+
+    patterns = (
+        r"(?:所有|全部)?關於\s*([^，,。．；;\n]{1,24}?)\s*隊",
+        r"(?:所有|全部)?關於\s*([^，,。．；;\n]{1,24}?)\s*的",
+        r"(?<![關於有關列出入顯示查詢所有全部])([\u4e00-\u9fffA-Za-z][\u4e00-\u9fffA-Za-z0-9 .&'-]{0,22}?)\s*隊的",
+        r"(?:主場|客場|主隊|客隊|對戰|對陣|對上)\s*[：:]?\s*"
+        r"([^，,。．；;\n/]{1,24}?)(?=\s*(?:的|隊|英超|足球|賠率|賽果|賽程|，|,|。|$))",
+    )
+    for pat in patterns:
+        for matched in re.finditer(pat, q, flags=re.I):
+            token = _normalize_football_team_token(matched.group(1))
+            if token and token.lower() not in _FOOTBALL_TEAM_STOPWORDS:
+                found.append(token)
+
+    # 題目直接出現已知中英隊名
+    q_lower = q.lower()
+    for canon, aliases in _FOOTBALL_TEAM_ALIASES.items():
+        hit = False
+        if canon in q:
+            hit = True
+        else:
+            for alias in aliases:
+                al = alias.lower()
+                if len(al) <= 2:
+                    continue
+                if alias in q or re.search(rf"\b{re.escape(al)}\b", q_lower):
+                    hit = True
+                    break
+        if hit:
+            found.append(canon)
+
+    return _expand_football_team_tokens(found)
+
+
+def _football_team_exact_match(team_name: str, tokens: list[str]) -> bool:
+    name = (team_name or "").strip()
+    if not name:
+        return False
+    nl = name.lower()
+    for token in tokens:
+        t = (token or "").strip()
+        if not t:
+            continue
+        if name == t or nl == t.lower():
+            return True
+    return False
+
+
+def _football_team_soft_match(team_name: str, tokens: list[str]) -> bool:
+    """後備：隊名包含查詢詞（避免漏掉別名變體）。"""
+    name = (team_name or "").strip()
+    if not name:
+        return False
+    nl = name.lower()
+    for token in tokens:
+        t = (token or "").strip()
+        if len(t) < 2:
+            continue
+        tl = t.lower()
+        if tl in nl or nl in tl:
+            return True
+    return False
+
+
+def _filter_football_rows_by_team(
+    records: list[dict[str, str]], tokens: list[str]
+) -> list[dict[str, str]]:
+    """先精確匹配主／客隊名，若無則改為包含匹配。"""
+    if not tokens:
+        return records
+    exact = [
+        rec
+        for rec in records
+        if _football_team_exact_match(str(rec.get("home_team") or ""), tokens)
+        or _football_team_exact_match(str(rec.get("away_team") or ""), tokens)
+    ]
+    if exact:
+        return exact
+    return [
+        rec
+        for rec in records
+        if _football_team_soft_match(str(rec.get("home_team") or ""), tokens)
+        or _football_team_soft_match(str(rec.get("away_team") or ""), tokens)
+    ]
+
+
+def _parse_football_date_sort(question: str) -> bool | None:
+    """解析日期排序：True=由大至小、False=由小至大、None=維持預設（小→大）。"""
+    q = question or ""
+    # 明確「按／依日期…」
+    if re.search(
+        r"(?:按|依|以|照)\s*日期\s*(?:由大至小|由大到小|由新至舊|由近至遠|降序|倒序)",
+        q,
+    ) or re.search(
+        r"日期\s*(?:由大至小|由大到小|由新至舊|由近至遠)\s*(?:排列|排序|排)?",
+        q,
+    ):
+        return True
+    if re.search(
+        r"(?:按|依|以|照)\s*日期\s*(?:由小至大|由小到大|由舊至新|由遠至近|升序)",
+        q,
+    ) or re.search(
+        r"日期\s*(?:由小至大|由小到大|由舊至新|由遠至近)\s*(?:排列|排序|排)?",
+        q,
+    ):
+        return False
+    # 題目有「由大至小排列」且語境含日期／賽果列表
+    if re.search(r"由大至小|由大到小|降序|倒序", q) and re.search(
+        r"日期|賽果|賽程|賠率", q
+    ):
+        return True
+    if re.search(r"由小至大|由小到大|升序", q) and re.search(
+        r"日期|賽果|賽程|賠率", q
+    ):
+        return False
+    return None
+
+
+def _football_record_sort_key(rec: dict[str, str]) -> tuple[str, str, str, str]:
+    day = normalize_date_key(str(rec.get("match_date") or "").replace(".", "/"))
+    time_text = str(rec.get("kick_off_time") or "").strip()
+    home = str(rec.get("home_team") or "")
+    away = str(rec.get("away_team") or "")
+    return (day or "", time_text, home, away)
+
+
+def _sort_football_records(
+    records: list[dict[str, str]], *, descending: bool
+) -> list[dict[str, str]]:
+    return sorted(records, key=_football_record_sort_key, reverse=descending)
+
+
 def _list_football_odds_results(db_path: Path, question: str) -> AiAnswer:
     """列出香港／英超足球賠率與賽果（支援日期或區間）。"""
     from .football import (
@@ -2199,6 +2449,31 @@ def _list_football_odds_results(db_path: Path, question: str) -> AiAnswer:
     except Exception as exc:  # noqa: BLE001
         return AiAnswer(f"讀取{scope_label}資料失敗：{exc}")
 
+    team_tokens = _parse_football_team_filter(question)
+    team_label = ""
+    if team_tokens:
+        # 顯示用：優先中文正式隊名
+        preferred = [
+            t
+            for t in team_tokens
+            if t in _FOOTBALL_TEAM_ALIASES or re.search(r"[\u4e00-\u9fff]", t)
+        ]
+        team_label = preferred[0] if preferred else team_tokens[0]
+        before = len(records)
+        records = _filter_football_rows_by_team(records, team_tokens)
+        if not records and before:
+            return AiAnswer(
+                f"{period} 的{scope_label}共有 {before} 場，"
+                f"但沒有「{team_label}」相關賽事（主場或客場）。"
+                f"請確認隊名（可用中文如「利物浦」或英文 Liverpool）。"
+            )
+
+    date_desc = _parse_football_date_sort(question)
+    sort_note = ""
+    if date_desc is not None:
+        records = _sort_football_records(records, descending=date_desc)
+        sort_note = "｜已按日期由大至小排列" if date_desc else "｜已按日期由小至大排列"
+
     col_specs = _parse_football_display_columns(question)
     columns = [label for label, _key in col_specs]
     rows: list[list[str]] = [
@@ -2216,7 +2491,11 @@ def _list_football_odds_results(db_path: Path, question: str) -> AiAnswer:
             )
         return AiAnswer(f"{period} 沒有{scope_label}賽事資料。\n{tip}")
 
-    text = f"{scope_label}賠率／賽果：{period}（共 {len(rows)} 場）。\n顯示欄位：{'／'.join(columns)}"
+    team_part = f"｜球隊：{team_label}" if team_label else ""
+    text = (
+        f"{scope_label}賠率／賽果：{period}{team_part}{sort_note}（共 {len(rows)} 場）。\n"
+        f"顯示欄位：{'／'.join(columns)}"
+    )
     want_export = bool(
         re.search(
             r"匯出\s*(Excel|excel|xlsx|CSV|csv|報表)?\.?|導出\s*(Excel|excel|xlsx)",
@@ -2225,10 +2504,14 @@ def _list_football_odds_results(db_path: Path, question: str) -> AiAnswer:
     )
     if want_export:
         suffix = "epl" if scope == FOOTBALL_SCOPE_EPL else "hk_football"
+        team_slug = re.sub(r"[^\w\u4e00-\u9fff]+", "_", team_label).strip("_") if team_label else ""
         if date_range is not None:
-            name = f"ai_{suffix}_{date_range[0]}_{date_range[1]}.xlsx"
+            name = f"ai_{suffix}_{date_range[0]}_{date_range[1]}"
         else:
-            name = f"ai_{suffix}_{single}.xlsx"
+            name = f"ai_{suffix}_{single}"
+        if team_slug:
+            name += f"_{team_slug}"
+        name += ".xlsx"
         text += "\n正在開啟 Excel 匯出（請選擇儲存位置）。"
         return AiAnswer(
             text,
@@ -2663,6 +2946,7 @@ def _score_starters_for_race(
                        COALESCE("檔位", '') AS draw,
                        COALESCE("評分", '') AS rating,
                        COALESCE("即時賠率", '') AS live_odds,
+                       COALESCE("隔夜賠率", '') AS overnight_odds,
                        COALESCE("預測賠率", '') AS pred_odds,
                        COALESCE("即時位置賠率", '') AS place_odds,
                        COALESCE(horse_id, '') AS horse_id,
@@ -2690,6 +2974,7 @@ def _score_starters_for_race(
                            COALESCE("檔位", '') AS draw,
                            COALESCE("評分", '') AS rating,
                            COALESCE("即時賠率", '') AS live_odds,
+                           COALESCE("即時賠率", '') AS overnight_odds,
                            COALESCE("預測賠率", '') AS pred_odds,
                            '' AS place_odds,
                            COALESCE(horse_id, '') AS horse_id,
@@ -2870,6 +3155,11 @@ def _score_starters_for_race(
                 going_val = going_by_hid[hid0]
         live = str(row["live_odds"] or "").strip()
         pred = str(row["pred_odds"] or "").strip()
+        overnight = ""
+        try:
+            overnight = str(row["overnight_odds"] or "").strip()
+        except (KeyError, IndexError):
+            overnight = ""
         live_place = ""
         try:
             live_place = str(row["place_odds"] or "").strip()
@@ -2885,6 +3175,7 @@ def _score_starters_for_race(
         live_val = live or result_odds or "—"
         today_odds_val = live or result_odds or "—"
         pred_val = pred or "—"
+        overnight_val = overnight or live_val
         place_val = live_place or result_place or "—"
         h_pts = 0
         if handicap_delta is not None:
@@ -2970,6 +3261,7 @@ def _score_starters_for_race(
                 "當天賠率": day_odds if day_odds else "—",
                 "今天賠率": today_odds_val,
                 "預測賠率": pred_val,
+                "隔夜賠率": overnight_val,
                 "即時賠率": live_val,
                 "即時位置賠率": place_val,
                 "即時賠率-預測賠率": odds_diff_val,

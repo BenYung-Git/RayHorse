@@ -127,6 +127,7 @@
     const tIdx = cols.findIndex((c) => c === "練馬師");
     const drawIdx = cols.findIndex((c) => c === "檔位");
     const liveIdx = cols.findIndex((c) => c === "即時賠率");
+    const overnightIdx = cols.findIndex((c) => c === "隔夜賠率");
     const predIdx = cols.findIndex((c) => c === "預測賠率");
     const rows = race.rows || [];
     if (!rows.length) {
@@ -141,6 +142,7 @@
         const trainer = tIdx >= 0 ? row[cols[tIdx]] : "";
         const draw = drawIdx >= 0 ? row[cols[drawIdx]] : "";
         const live = liveIdx >= 0 ? row[cols[liveIdx]] : "";
+        const overnight = overnightIdx >= 0 ? row[cols[overnightIdx]] : "";
         const pred = predIdx >= 0 ? row[cols[predIdx]] : "";
         return `<article class="m-card">
           <div class="m-card-hd">
@@ -151,8 +153,9 @@
             <dt>檔位</dt><dd>${esc(draw || "—")}</dd>
             <dt>騎師</dt><dd>${esc(jockey || "—")}</dd>
             <dt>練馬師</dt><dd>${esc(trainer || "—")}</dd>
-            <dt>即時賠率</dt><dd>${esc(live || "—")}</dd>
             <dt>預測賠率</dt><dd>${esc(pred || "—")}</dd>
+            <dt>隔夜賠率</dt><dd>${esc(overnight || "—")}</dd>
+            <dt>即時賠率</dt><dd>${esc(live || "—")}</dd>
           </dl>
         </article>`;
       })

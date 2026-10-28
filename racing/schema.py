@@ -202,12 +202,14 @@ def ai_schema_sql() -> str:
 def racecard_starters_schema_sql(
     starters_table: str = RACECARD_STARTERS_TABLE,
     predicted_odds_col: str = "預測賠率",
+    overnight_odds_col: str = "隔夜賠率",
     immediate_odds_col: str = "即時賠率",
     place_odds_col: str = "即時位置賠率",
 ) -> str:
     """DDL for racecard starters table/index."""
     starters = qident(starters_table)
     predicted = qident(predicted_odds_col)
+    overnight = qident(overnight_odds_col)
     immediate = qident(immediate_odds_col)
     place = qident(place_odds_col)
     return dedent(
@@ -229,6 +231,7 @@ def racecard_starters_schema_sql(
             "馬匹體重" TEXT,
             "配備" TEXT,
             {predicted} TEXT,
+            {overnight} TEXT,
             {immediate} TEXT,
             {place} TEXT
         );
@@ -241,6 +244,7 @@ def racecard_starters_schema_sql(
 def racecard_starters_expected_columns(
     display_fields: list[str] | tuple[str, ...] = RACECARD_STARTERS_DEFAULT_DISPLAY_FIELDS,
     predicted_odds_col: str = "預測賠率",
+    overnight_odds_col: str = "隔夜賠率",
     immediate_odds_col: str = "即時賠率",
     place_odds_col: str = "即時位置賠率",
 ) -> set[str]:
@@ -249,6 +253,7 @@ def racecard_starters_expected_columns(
         *RACECARD_STARTERS_BASE_COLUMNS,
         *display_fields,
         predicted_odds_col,
+        overnight_odds_col,
         immediate_odds_col,
         place_odds_col,
     }
@@ -267,6 +272,7 @@ def ensure_racecard_starters_columns(
     starters_table: str = RACECARD_STARTERS_TABLE,
     display_fields: list[str] | tuple[str, ...] = RACECARD_STARTERS_DEFAULT_DISPLAY_FIELDS,
     predicted_odds_col: str = "預測賠率",
+    overnight_odds_col: str = "隔夜賠率",
     immediate_odds_col: str = "即時賠率",
     place_odds_col: str = "即時位置賠率",
 ) -> None:
@@ -280,6 +286,7 @@ def ensure_racecard_starters_columns(
     expected = racecard_starters_expected_columns(
         display_fields=display_fields,
         predicted_odds_col=predicted_odds_col,
+        overnight_odds_col=overnight_odds_col,
         immediate_odds_col=immediate_odds_col,
         place_odds_col=place_odds_col,
     )
@@ -294,6 +301,7 @@ def ensure_racecard_starters_columns(
             racecard_starters_schema_sql(
                 starters_table=starters_table,
                 predicted_odds_col=predicted_odds_col,
+                overnight_odds_col=overnight_odds_col,
                 immediate_odds_col=immediate_odds_col,
                 place_odds_col=place_odds_col,
             )

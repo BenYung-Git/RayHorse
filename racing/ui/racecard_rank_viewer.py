@@ -84,6 +84,9 @@ RACECARD_DISPLAY_FIELDS: list[str] = [
 # 預測賠率（本欄會顯示在 grid，但目前不做抓取解析：寫入空值）。
 RACECARD_PREDICTED_ODDS_COLUMN = "預測賠率"
 
+# 隔夜賠率：預設跟隨即時賠率；按「確認隔夜賠率」後鎖定，不再隨即時變更。
+RACECARD_OVERNIGHT_ODDS_COLUMN = "隔夜賠率"
+
 # 即時賠率：初始會先用模型填一份；抓到排位資料後會再用 GraphQL 的 winOdds 重新更新（只更新既有且非後備）。
 RACECARD_IMMEDIATE_ODDS_COLUMN = "即時賠率"
 RACECARD_PLACE_ODDS_COLUMN = "即時位置賠率"
@@ -94,6 +97,7 @@ RACECARD_DISPLAY_COLUMNS: list[str] = (
     RACECARD_DISPLAY_FIELDS
     + [
         RACECARD_PREDICTED_ODDS_COLUMN,
+        RACECARD_OVERNIGHT_ODDS_COLUMN,
         RACECARD_IMMEDIATE_ODDS_COLUMN,
         RACECARD_ODDS_DIFF_COLUMN,
         RACECARD_PLACE_ODDS_COLUMN,
@@ -343,6 +347,92 @@ def _fill_predicted_win_odds_for_meeting(
         _fill_predicted_win_odds_for_race(conn, race_date, racecourse, rn)
 
 
+def overnight_odds_confirmed_meta_key(race_date: str, racecourse: str) -> str:
+    return f"overnight_odds_confirmed:{race_date}|{racecourse}"
+
+
+def is_overnight_odds_confirmed(
+    conn: sqlite3.Connection, race_date: str, racecourse: str
+) -> bool:
+    key = overnight_odds_confirmed_meta_key(race_date, racecourse)
+    try:
+        row = conn.execute(
+            "SELECT value FROM racecard_meta WHERE key = ? LIMIT 1;",
+            (key,),
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return False
+    if row is None:
+        return False
+    val = str(row["value"] if hasattr(row, "keys") else row[0] or "").strip().lower()
+    if not val or val in {"0", "false", "no", "n", "off"}:
+        return False
+    # 值可為 1／confirmed，或確認當下的時間字串
+    return True
+
+
+def clear_overnight_odds_confirmed(
+    conn: sqlite3.Connection, race_date: str, racecourse: str
+) -> None:
+    """重抓排位時清除鎖定，隔夜賠率恢復跟隨即時。"""
+    key = overnight_odds_confirmed_meta_key(race_date, racecourse)
+    try:
+        conn.execute("DELETE FROM racecard_meta WHERE key = ?;", (key,))
+    except sqlite3.OperationalError:
+        return
+
+
+def set_overnight_odds_confirmed(
+    conn: sqlite3.Connection,
+    race_date: str,
+    racecourse: str,
+    *,
+    confirmed: bool = True,
+) -> None:
+    key = overnight_odds_confirmed_meta_key(race_date, racecourse)
+    if not confirmed:
+        clear_overnight_odds_confirmed(conn, race_date, racecourse)
+        return
+    now_txt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn.execute(
+        """
+        INSERT INTO racecard_meta(key, value)
+        VALUES(?, ?)
+        ON CONFLICT(key) DO UPDATE SET value=excluded.value;
+        """,
+        (key, now_txt),
+    )
+
+
+def sync_overnight_odds_from_immediate(
+    conn: sqlite3.Connection, race_date: str, racecourse: str
+) -> int:
+    """未確認時：隔夜賠率 ← 即時賠率。"""
+    cur = conn.execute(
+        f"""
+        UPDATE racecard_starters
+           SET "{RACECARD_OVERNIGHT_ODDS_COLUMN}" = "{RACECARD_IMMEDIATE_ODDS_COLUMN}"
+         WHERE race_date = ?
+           AND racecourse = ?
+           AND 後備 = '否';
+        """,
+        (race_date, racecourse),
+    )
+    return int(cur.rowcount or 0)
+
+
+def confirm_overnight_odds_for_meeting(
+    conn: sqlite3.Connection, race_date: str, racecourse: str
+) -> int:
+    """
+    確認隔夜賠率：以目前即時賠率寫入隔夜並鎖定，之後即時更新不再改隔夜。
+    回傳更新列數。
+    """
+    n = sync_overnight_odds_from_immediate(conn, race_date, racecourse)
+    set_overnight_odds_confirmed(conn, race_date, racecourse, confirmed=True)
+    return n
+
+
 def update_win_odds(
     conn: sqlite3.Connection,
     race_date: str,
@@ -350,11 +440,14 @@ def update_win_odds(
     race_no: int,
     馬號: str,
     win_odds: Any,
+    *,
+    sync_overnight: bool = True,
 ) -> None:
-    cur = conn.execute(
-        """
+    if sync_overnight:
+        sql = f"""
         UPDATE racecard_starters
-           SET "即時賠率" = ?
+           SET "{RACECARD_IMMEDIATE_ODDS_COLUMN}" = ?,
+               "{RACECARD_OVERNIGHT_ODDS_COLUMN}" = ?
          WHERE race_date = ?
            AND racecourse = ?
            AND race_no = ?
@@ -366,9 +459,26 @@ def update_win_odds(
                     AND CAST(TRIM("馬號") AS INTEGER) = CAST(? AS INTEGER)
                 )
            );
-        """,
-        (win_odds, race_date, racecourse, race_no, 馬號, 馬號),
-    )
+        """
+        params = (win_odds, win_odds, race_date, racecourse, race_no, 馬號, 馬號)
+    else:
+        sql = f"""
+        UPDATE racecard_starters
+           SET "{RACECARD_IMMEDIATE_ODDS_COLUMN}" = ?
+         WHERE race_date = ?
+           AND racecourse = ?
+           AND race_no = ?
+           AND 後備 = '否'
+           AND (
+                TRIM("馬號") = ?
+                OR (
+                    TRIM(COALESCE("馬號", '')) GLOB '[0-9]*'
+                    AND CAST(TRIM("馬號") AS INTEGER) = CAST(? AS INTEGER)
+                )
+           );
+        """
+        params = (win_odds, race_date, racecourse, race_no, 馬號, 馬號)
+    cur = conn.execute(sql, params)
     if cur.rowcount == 0:
         # 只 update 已存在紀錄；找不到就略過並提示。
         print(f"[略過] 未找到匹配：{race_date} {racecourse} 第{race_no}場 馬號={馬號} 後備=否")
@@ -445,6 +555,7 @@ def _update_immediate_odds_for_meeting_from_graphql(
     wrote_win = 0
     wrote_place = 0
     saw_pool = False
+    sync_overnight = not is_overnight_odds_confirmed(conn, race_date, racecourse_code)
     for race_no in race_nos:
         try:
             pools = get_race_odds_pools(
@@ -476,6 +587,7 @@ def _update_immediate_odds_for_meeting_from_graphql(
                         race_no=int(race_no),
                         馬號=馬號,
                         win_odds=odds_val,
+                        sync_overnight=sync_overnight,
                     )
                     wrote_win += 1
                 elif odds_type == "PLA":
@@ -489,12 +601,17 @@ def _update_immediate_odds_for_meeting_from_graphql(
                     )
                     wrote_place += 1
 
+    # 未確認時再整場同步一次，補齊未開出獨贏／新欄位空白列
+    if sync_overnight:
+        sync_overnight_odds_from_immediate(conn, race_date, racecourse_code)
+
     if saw_pool and wrote_win == 0:
         print("[即時賠率] 馬會尚未開出獨贏賠率，保留現有數值。")
     elif wrote_win or wrote_place:
+        locked = "（隔夜已鎖定）" if not sync_overnight else "（隔夜同步即時）"
         print(
             f"[即時賠率] 已更新獨贏 {wrote_win}／位置 {wrote_place} "
-            f"（{race_date} {racecourse_code}）"
+            f"（{race_date} {racecourse_code}）{locked}"
         )
 
 
@@ -980,6 +1097,9 @@ def _upsert_racecard_for_race(
     main_headers, main_rows, reserve_headers, reserve_rows = parsed
     reserve_headers = reserve_headers or []
 
+    # 重抓該場出馬表：隔夜改回跟隨即時（整場賽日鎖定一併解除）
+    clear_overnight_odds_confirmed(conn, race_date, racecourse_code)
+
     # Delete previous rows for the race (both reserve/main).
     conn.execute(
         """
@@ -1001,6 +1121,7 @@ def _upsert_racecard_for_race(
         RACECARD_HIDDEN_HORSE_ID_COLUMN,
         *fixed_cols,
         RACECARD_PREDICTED_ODDS_COLUMN,
+        RACECARD_OVERNIGHT_ODDS_COLUMN,
         RACECARD_IMMEDIATE_ODDS_COLUMN,
     ]
     insert_cols_sql = [qident(c) for c in insert_cols]
@@ -1019,7 +1140,8 @@ def _upsert_racecard_for_race(
         # Keep empty strings as NULL for cleaner display/sorting.
         row_vals: list[Any] = [race_date, racecourse_code, race_no, reserve_flag, horse_id]
         row_vals.extend(fields.get(c) for c in fixed_cols)
-        # 預測賠率/即時賠率目前未做抓取解析：先寫入空值，後續用往績模型補齊。
+        # 預測／隔夜／即時先空值；抓賠率後即時寫入，未確認時隔夜跟隨即時。
+        row_vals.append(None)
         row_vals.append(None)
         row_vals.append(None)
         conn.execute(insert_sql, row_vals)
@@ -1052,6 +1174,7 @@ def init_racecard_db(db_path: Path) -> None:
             starters_table="racecard_starters",
             display_fields=RACECARD_DISPLAY_FIELDS,
             predicted_odds_col=RACECARD_PREDICTED_ODDS_COLUMN,
+            overnight_odds_col=RACECARD_OVERNIGHT_ODDS_COLUMN,
             immediate_odds_col=RACECARD_IMMEDIATE_ODDS_COLUMN,
             place_odds_col=RACECARD_PLACE_ODDS_COLUMN,
         )
@@ -1346,6 +1469,52 @@ def update_latest_racecard_data(config: AppConfig) -> LatestMeeting | None:
         conn.close()
 
 
+def confirm_overnight_odds(
+    config: AppConfig, race_date: str, racecourse: str
+) -> dict[str, Any]:
+    """確認目前賽日之隔夜賠率（寫入並鎖定）。"""
+    init_racecard_db(config.db_path)
+    conn = get_connection(config.db_path)
+    try:
+        count = conn.execute(
+            """
+            SELECT COUNT(*) AS c FROM racecard_starters
+            WHERE race_date = ? AND racecourse = ? AND 後備 = '否';
+            """,
+            (race_date, racecourse),
+        ).fetchone()["c"]
+        if not count:
+            return {
+                "ok": False,
+                "error": "no_starters",
+                "message": "此賽日尚無排位，無法確認隔夜賠率。",
+            }
+        updated = confirm_overnight_odds_for_meeting(conn, race_date, racecourse)
+        conn.commit()
+        return {
+            "ok": True,
+            "updated": updated,
+            "overnight_confirmed": True,
+            "confirmed_at": get_racecard_meta_value(
+                config, overnight_odds_confirmed_meta_key(race_date, racecourse)
+            ),
+            "message": f"已確認隔夜賠率（{updated} 匹），之後即時賠率變更不會再改隔夜。",
+        }
+    finally:
+        conn.close()
+
+
+def get_overnight_odds_confirmed(
+    config: AppConfig, race_date: str, racecourse: str
+) -> bool:
+    init_racecard_db(config.db_path)
+    conn = get_connection(config.db_path)
+    try:
+        return is_overnight_odds_confirmed(conn, race_date, racecourse)
+    finally:
+        conn.close()
+
+
 def get_last_update_at(config: AppConfig) -> str:
     conn = get_connection(config.db_path)
     try:
@@ -1391,11 +1560,20 @@ class RacecardPanel(QWidget):
         # Ensure tables exist before reading meta.
         init_racecard_db(self._config.db_path)
         self._last_update_label = QLabel("上次更新時間：")
+        self._overnight_label = QLabel("隔夜賠率：跟隨即時")
         self._update_btn = QPushButton("更新資料")
+        self._confirm_overnight_btn = QPushButton("確認隔夜賠率")
+        self._confirm_overnight_btn.setToolTip(
+            "把目前即時賠率寫入隔夜並鎖定；之後即時更新不會再改隔夜賠率"
+        )
         style = self.style()
         if style is not None:
             self._update_btn.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_BrowserReload))
+            self._confirm_overnight_btn.setIcon(
+                style.standardIcon(QStyle.StandardPixmap.SP_DialogApplyButton)
+            )
         self._update_btn.clicked.connect(self._on_update_clicked)
+        self._confirm_overnight_btn.clicked.connect(self._on_confirm_overnight_clicked)
 
         # 可選擇資料庫內已下載的賽事日期，顯示該日排位
         self._history_combo = QComboBox()
@@ -1405,6 +1583,8 @@ class RacecardPanel(QWidget):
 
         top = QHBoxLayout()
         top.addWidget(self._last_update_label, 1)
+        top.addWidget(self._overnight_label, 0)
+        top.addWidget(self._confirm_overnight_btn, 0)
         top.addWidget(self._update_btn, 0)
         root.addLayout(top)
 
@@ -1505,6 +1685,59 @@ class RacecardPanel(QWidget):
             self._last_update_label.setText(f"上次更新時間：{last}")
         else:
             self._last_update_label.setText("上次更新時間：尚未更新")
+        self._refresh_overnight_status()
+
+    def _refresh_overnight_status(self) -> None:
+        if self._meeting is None:
+            self._overnight_label.setText("隔夜賠率：—")
+            self._confirm_overnight_btn.setEnabled(False)
+            return
+        confirmed = get_overnight_odds_confirmed(
+            self._config, self._meeting.racedate, self._meeting.racecourse_code
+        )
+        if confirmed:
+            at = get_racecard_meta_value(
+                self._config,
+                overnight_odds_confirmed_meta_key(
+                    self._meeting.racedate, self._meeting.racecourse_code
+                ),
+            )
+            tip = f"（{at}）" if at else ""
+            self._overnight_label.setText(f"隔夜賠率：已確認{tip}")
+            self._confirm_overnight_btn.setEnabled(True)
+            self._confirm_overnight_btn.setText("再次確認隔夜賠率")
+        else:
+            self._overnight_label.setText("隔夜賠率：跟隨即時")
+            self._confirm_overnight_btn.setEnabled(True)
+            self._confirm_overnight_btn.setText("確認隔夜賠率")
+
+    def _on_confirm_overnight_clicked(self) -> None:
+        if self._meeting is None:
+            QMessageBox.information(self, "確認隔夜賠率", "尚無排位賽日。")
+            return
+        reply = QMessageBox.question(
+            self,
+            "確認隔夜賠率",
+            "將以目前「即時賠率」寫入「隔夜賠率」並鎖定。\n"
+            "之後下載／更新即時賠率時，隔夜賠率不會再變更。\n\n確定？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        result = confirm_overnight_odds(
+            self._config, self._meeting.racedate, self._meeting.racecourse_code
+        )
+        if not result.get("ok"):
+            QMessageBox.warning(
+                self, "確認隔夜賠率", str(result.get("message") or "確認失敗")
+            )
+            return
+        self._refresh_overnight_status()
+        self._load_grid()
+        QMessageBox.information(
+            self, "確認隔夜賠率", str(result.get("message") or "已確認。")
+        )
 
     def _on_update_clicked(self) -> None:
         win = self.window()
@@ -1525,6 +1758,10 @@ class RacecardPanel(QWidget):
             if self._meeting:
                 race_date = self._meeting.racedate
                 racecourse = self._meeting.racecourse_code
+                # 未確認：開啟畫面時把隔夜對齊即時（相容舊資料空白欄）
+                if not is_overnight_odds_confirmed(conn, race_date, racecourse):
+                    sync_overnight_odds_from_immediate(conn, race_date, racecourse)
+                    conn.commit()
             else:
                 # Fallback: take the latest race_date and its first course.
                 row = conn.execute(
@@ -1663,6 +1900,7 @@ class RacecardPanel(QWidget):
                     if first_table is not None and first_table.rowCount() > 0:
                         first_table.selectRow(0)
                         self._on_starter_selection_changed(first_table)
+            self._refresh_overnight_status()
         finally:
             conn.close()
 
